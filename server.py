@@ -32,6 +32,12 @@ class Handler(http.server.SimpleHTTPRequestHandler):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, directory=DIR, **kwargs)
 
+    # Local dev server — never let the browser cache anything, so edits always show up
+    # on the next reload instead of silently serving a stale script.js or index.html.
+    def end_headers(self):
+        self.send_header("Cache-Control", "no-store, must-revalidate")
+        super().end_headers()
+
     def do_GET(self):
         path = urlsplit(self.path).path
         query = parse_qs(urlsplit(self.path).query)

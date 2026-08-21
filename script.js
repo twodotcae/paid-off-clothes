@@ -1,39 +1,40 @@
 // ---------- EDIT THIS: your stock ----------
 const CATEGORIES = ["All", "T-Shirts", "Belts", "Shoes", "Backpacks"];
 
-// Real stock imported from PO_inventory — generic non-brand names (see chat), no photos yet
-// (shows the "Photo Coming" placeholder until real, non-branded photos are added). Prices are
-// placeholders to edit.
+// Real stock imported from PO_inventory — generic non-brand names (see chat). 3 "Cough Syrup" tee
+// styles use their real (unbranded) product photos; everything else uses free-license stock photos
+// (Pexels, no attribution required) shared across styles within a category as generic placeholders
+// — swap in real per-item shots when you have them. Prices are placeholders too.
 const PRODUCTS = [
-  ...expandSizedStock("T-Shirts", "Cough Syrup Graphic Tee (Style 1)", "Heavyweight cotton tee, bold graphic front and back print.", 32, { S: 5, M: 5, L: 5, XL: 5, XXL: 0 }),
-  ...expandSizedStock("T-Shirts", "Cough Syrup Graphic Tee (Style 2)", "Heavyweight cotton tee, bold graphic front and back print.", 32, { S: 5, M: 5, L: 5, XL: 5, XXL: 0 }),
-  ...expandSizedStock("T-Shirts", "Cough Syrup Graphic Tee (Style 3)", "Heavyweight cotton tee, bold graphic front and back print, cartoon character detail.", 32, { S: 5, M: 5, L: 5, XL: 5, XXL: 0 }),
-  ...expandSizedStock("T-Shirts", "Bold Block Letter Tee", "Oversized fit tee with large 3D-style block lettering across the chest.", 38, { S: 5, M: 5, L: 5, XL: 4, XXL: 2 }),
-  ...expandSizedStock("T-Shirts", "Minimal Logo Graphic Tee", "Relaxed fit tee with a clean centered wordmark graphic.", 34, { S: 4, M: 5, L: 5, XL: 4, XXL: 2 }),
-  ...expandSizedStock("T-Shirts", "Gothic Cross Tank Top", "Ribbed tank top with a gothic cross emblem print, front and back.", 28, { S: 20, M: 20, L: 20, XL: 5, XXL: 0 }),
+  ...expandSizedStock("T-Shirts", "Cough Syrup Graphic Tee (Style 1)", "Heavyweight cotton tee, bold graphic front and back print.", 32, { S: 5, M: 5, L: 5, XL: 5, XXL: 0 }, "images/IMG_7806.jpeg"),
+  ...expandSizedStock("T-Shirts", "Cough Syrup Graphic Tee (Style 2)", "Heavyweight cotton tee, bold graphic front and back print.", 32, { S: 5, M: 5, L: 5, XL: 5, XXL: 0 }, "images/IMG_7817.jpeg"),
+  ...expandSizedStock("T-Shirts", "Cough Syrup Graphic Tee (Style 3)", "Heavyweight cotton tee, bold graphic front and back print, cartoon character detail.", 32, { S: 5, M: 5, L: 5, XL: 5, XXL: 0 }, "images/IMG_7807.jpeg"),
+  ...expandSizedStock("T-Shirts", "Bold Block Letter Tee", "Oversized fit tee with large 3D-style block lettering across the chest.", 38, { S: 5, M: 5, L: 5, XL: 4, XXL: 2 }, "images/stock-tee.jpeg"),
+  ...expandSizedStock("T-Shirts", "Minimal Logo Graphic Tee", "Relaxed fit tee with a clean centered wordmark graphic.", 34, { S: 4, M: 5, L: 5, XL: 4, XXL: 2 }, "images/stock-tee.jpeg"),
+  ...expandSizedStock("T-Shirts", "Gothic Cross Tank Top", "Ribbed tank top with a gothic cross emblem print, front and back.", 28, { S: 20, M: 20, L: 20, XL: 5, XXL: 0 }, "images/stock-tee.jpeg"),
 
-  ...expandSizedStock("Belts", "Black Cross Buckle Belt", "Leather belt with an oversized cross-shaped buckle.", 45, { "100cm": 3, "105cm": 0, "110cm": 2, "115cm": 0, "120cm": 0 }),
-  ...expandSizedStock("Belts", "White Buckle Belt (Style 1)", "Leather belt with a polished buckle.", 45, { "100cm": 2, "105cm": 0, "110cm": 2, "115cm": 0, "120cm": 0 }),
-  ...expandSizedStock("Belts", "White Buckle Belt (Style 2)", "Leather belt with a polished buckle.", 45, { "100cm": 6, "105cm": 0, "110cm": 0, "115cm": 0, "120cm": 0 }),
-  ...expandSizedStock("Belts", "White Oval Buckle Belt", "Leather belt with an oval-shaped buckle.", 45, { "100cm": 3, "105cm": 0, "110cm": 3, "115cm": 0, "120cm": 0 }),
-  ...expandSizedStock("Belts", "Two-Tone Monogram Belt — Black Hardware", "Woven monogram-pattern belt, dark hardware.", 55, { "100cm": 0, "105cm": 3, "110cm": 3, "115cm": 3, "120cm": 3 }),
-  ...expandSizedStock("Belts", "Two-Tone Monogram Belt — Silver Hardware", "Woven monogram-pattern belt, polished hardware.", 55, { "100cm": 0, "105cm": 3, "110cm": 3, "115cm": 3, "120cm": 0 }),
-  ...expandSizedStock("Belts", "Monogram Print Belt — Black", "Coated canvas belt, all-over monogram print.", 50, { "100cm": 0, "105cm": 3, "110cm": 3, "115cm": 3, "120cm": 2 }),
-  ...expandSizedStock("Belts", "Embossed Belt — Black", "Debossed leather belt with tonal pattern detailing.", 50, { "100cm": 0, "105cm": 3, "110cm": 3, "115cm": 3, "120cm": 3 }),
-  ...expandSizedStock("Belts", "Monogram Print Belt — White", "Coated canvas belt, all-over monogram print.", 50, { "100cm": 0, "105cm": 4, "110cm": 3, "115cm": 3, "120cm": 2 }),
-  ...expandSizedStock("Belts", "Multicolor Monogram Belt", "Coated canvas belt, multicolor monogram print.", 60, { "100cm": 0, "105cm": 5, "110cm": 0, "115cm": 0, "120cm": 0 }),
+  ...expandSizedStock("Belts", "Black Cross Buckle Belt", "Leather belt with an oversized cross-shaped buckle.", 45, { "100cm": 3, "105cm": 0, "110cm": 2, "115cm": 0, "120cm": 0 }, "images/stock-belt.jpeg"),
+  ...expandSizedStock("Belts", "White Buckle Belt (Style 1)", "Leather belt with a polished buckle.", 45, { "100cm": 2, "105cm": 0, "110cm": 2, "115cm": 0, "120cm": 0 }, "images/stock-belt.jpeg"),
+  ...expandSizedStock("Belts", "White Buckle Belt (Style 2)", "Leather belt with a polished buckle.", 45, { "100cm": 6, "105cm": 0, "110cm": 0, "115cm": 0, "120cm": 0 }, "images/stock-belt.jpeg"),
+  ...expandSizedStock("Belts", "White Oval Buckle Belt", "Leather belt with an oval-shaped buckle.", 45, { "100cm": 3, "105cm": 0, "110cm": 3, "115cm": 0, "120cm": 0 }, "images/stock-belt.jpeg"),
+  ...expandSizedStock("Belts", "Two-Tone Monogram Belt — Black Hardware", "Woven monogram-pattern belt, dark hardware.", 55, { "100cm": 0, "105cm": 3, "110cm": 3, "115cm": 3, "120cm": 3 }, "images/stock-belt.jpeg"),
+  ...expandSizedStock("Belts", "Two-Tone Monogram Belt — Silver Hardware", "Woven monogram-pattern belt, polished hardware.", 55, { "100cm": 0, "105cm": 3, "110cm": 3, "115cm": 3, "120cm": 0 }, "images/stock-belt.jpeg"),
+  ...expandSizedStock("Belts", "Monogram Print Belt — Black", "Coated canvas belt, all-over monogram print.", 50, { "100cm": 0, "105cm": 3, "110cm": 3, "115cm": 3, "120cm": 2 }, "images/stock-belt.jpeg"),
+  ...expandSizedStock("Belts", "Embossed Belt — Black", "Debossed leather belt with tonal pattern detailing.", 50, { "100cm": 0, "105cm": 3, "110cm": 3, "115cm": 3, "120cm": 3 }, "images/stock-belt.jpeg"),
+  ...expandSizedStock("Belts", "Monogram Print Belt — White", "Coated canvas belt, all-over monogram print.", 50, { "100cm": 0, "105cm": 4, "110cm": 3, "115cm": 3, "120cm": 2 }, "images/stock-belt.jpeg"),
+  ...expandSizedStock("Belts", "Multicolor Monogram Belt", "Coated canvas belt, multicolor monogram print.", 60, { "100cm": 0, "105cm": 5, "110cm": 0, "115cm": 0, "120cm": 0 }, "images/stock-belt.jpeg"),
 
-  ...expandSizedStock("Shoes", "Silver / White Runner", "Chunky low-top sneaker, layered mesh and suede paneling.", 75, { "EU 42": 1, "EU 43": 1, "EU 44": 3, "EU 45": 2 }),
-  ...expandSizedStock("Shoes", "Black / White Runner", "Chunky low-top sneaker, layered mesh and suede paneling.", 75, { "EU 42": 1, "EU 43": 2, "EU 44": 2, "EU 45": 2 }),
+  ...expandSizedStock("Shoes", "Silver / White Runner", "Chunky low-top sneaker, layered mesh and suede paneling.", 75, { "EU 42": 1, "EU 43": 1, "EU 44": 3, "EU 45": 2 }, "images/stock-sneaker.jpeg"),
+  ...expandSizedStock("Shoes", "Black / White Runner", "Chunky low-top sneaker, layered mesh and suede paneling.", 75, { "EU 42": 1, "EU 43": 2, "EU 44": 2, "EU 45": 2 }, "images/stock-sneaker.jpeg"),
 
-  ...oneSizeStock("Backpacks", "Woven Pattern Backpack — Green", "Coated canvas backpack, all-over woven print with leather trim.", 70, 3),
-  ...oneSizeStock("Backpacks", "Woven Pattern Backpack — Black", "Coated canvas backpack, all-over woven print with leather trim.", 70, 5),
-  ...oneSizeStock("Backpacks", "Woven Pattern Backpack — Brown", "Coated canvas backpack, all-over woven print with leather trim.", 70, 5),
+  ...oneSizeStock("Backpacks", "Woven Pattern Backpack — Green", "Coated canvas backpack, all-over woven print with leather trim.", 70, 3, "images/stock-backpack.jpeg"),
+  ...oneSizeStock("Backpacks", "Woven Pattern Backpack — Black", "Coated canvas backpack, all-over woven print with leather trim.", 70, 5, "images/stock-backpack.jpeg"),
+  ...oneSizeStock("Backpacks", "Woven Pattern Backpack — Brown", "Coated canvas backpack, all-over woven print with leather trim.", 70, 5, "images/stock-backpack.jpeg"),
 ];
 
 // Expands a style into one product card per size that's actually in stock (skips zero-qty sizes).
 // No `img` — these show the "Photo Coming" placeholder until real (non-branded) photos are added.
-function expandSizedStock(category, name, desc, price, sizeQty) {
+function expandSizedStock(category, name, desc, price, sizeQty, img) {
   return Object.entries(sizeQty)
     .filter(([, qty]) => qty > 0)
     .map(([size, qty]) => ({
@@ -44,12 +45,13 @@ function expandSizedStock(category, name, desc, price, sizeQty) {
       status: "available",
       stock: qty,
       desc,
+      ...(img ? { img } : {}),
     }));
 }
 
-function oneSizeStock(category, name, desc, price, qty) {
+function oneSizeStock(category, name, desc, price, qty, img) {
   if (qty <= 0) return [];
-  return [{ name, category, meta: "One Size", price, status: "available", stock: qty, desc }];
+  return [{ name, category, meta: "One Size", price, status: "available", stock: qty, desc, ...(img ? { img } : {}) }];
 }
 
 const state = { category: "All", search: "", sizes: [], minPrice: null, maxPrice: null, inStockOnly: false, sort: "newest" };
