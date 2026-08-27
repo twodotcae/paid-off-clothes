@@ -1,11 +1,15 @@
 #!/bin/sh
-# Blocks a commit that contains a credential file, even one forced past .gitignore with `git add -f`.
+# Blocks a commit that contains a credential or business-secret file, even one forced past
+# .gitignore with `git add -f`.
+#
+# costs.json is here because this repo is PUBLIC: it holds supplier costs and landed cost, and
+# committing it would publish the margin on every item.
 # .gitignore is a default; this is the actual stop. Install on each machine with:
 #   sh tools/install-hooks.sh
 #
 # Bypass deliberately (you had better be sure) with: git commit --no-verify
 
-blocked=$(git diff --cached --name-only | grep -E '(^|/)(admin_auth\.json|admin_token\.txt|secrets\.json|\.env(\..*)?)$|\.(key|pem)$')
+blocked=$(git diff --cached --name-only | grep -E '(^|/)(admin_auth\.json|admin_token\.txt|costs\.json|secrets\.json|\.env(\..*)?)$|\.(key|pem)$')
 
 if [ -n "$blocked" ]; then
   echo "COMMIT BLOCKED — these files hold credentials and must never reach GitHub:" >&2

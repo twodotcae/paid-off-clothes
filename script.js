@@ -1096,7 +1096,8 @@ function initModal() {
     if (!currentModalProduct || currentModalProduct.status === "sold" || !selectedSize) return;
     const result = addToCart(currentModalProduct, selectedSize, selectedQty);
     const btn = e.currentTarget;
-    btn.textContent = { added: "Added ✓", "topped-up": "Cart Updated ✓", maxed: "All Stock In Cart" }[result];
+    btn.textContent = { added: "Added ✓", "topped-up": "Cart Updated ✓", maxed: "All Stock In Cart",
+                        unavailable: "Unavailable" }[result] || "Unavailable";
     setTimeout(() => { btn.textContent = "Add to Cart"; }, 1500);
   });
   document.addEventListener("keydown", (e) => {
@@ -1338,8 +1339,11 @@ function loadCart() {
     cart = saved
       .map(({ name, size, qty }) => {
         const p = PRODUCTS.find((x) => x.name === name);
-        // Drop lines whose style or size has since sold out of the workbook.
-        if (!p || !sizesOf(p).includes(size)) return null;
+        // Drop lines whose style or size has gone. `status === "sold"` matters as much as a
+        // missing size: a cart saved before a sell-out would otherwise survive in localStorage
+        // and carry an unavailable item all the way to checkout.
+        if (!p || p.status === "sold" || !sizesOf(p).includes(size)) return null;
+        if (unitsFor(p, size) < 1) return null;
         return cartLine(p, size, qty);
       })
       .filter(Boolean);
@@ -1359,8 +1363,12 @@ function updateCartBadge() {
   badge.hidden = units === 0;
 }
 
-// Returns "added", "topped-up", or "maxed" so the button can say what actually happened.
+// Returns "added", "topped-up", "maxed", or "unavailable" so the button can say what happened.
 function addToCart(p, size, qty = 1) {
+  // The buttons that call this are disabled for a sold-out style, but the guard belongs here too:
+  // this is the money path, and a stale page, a restored tab or any future caller would otherwise
+  // walk a sold item straight into the cart.
+  if (!p || p.status === "sold" || unitsFor(p, size) < 1) return "unavailable";
   const line = cartLine(p, size, qty);
   const existing = cart.find((l) => l.lineId === line.lineId);
   if (existing) {

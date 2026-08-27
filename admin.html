@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Paid Off Clothes — Admin</title>
 <!-- Same self-hosted fonts as the storefront. No external requests here either. -->
+<link rel="icon" href="images/favicon.png" type="image/png" />
 <link rel="stylesheet" href="fonts/fonts.css?v=1" />
 <style>
 /* Deliberately standalone: this page shares no CSS with the storefront, so nothing done here
@@ -105,6 +106,16 @@ textarea{resize:vertical;min-height:56px}
   border:1px solid var(--g700);border-radius:999px;padding:10px 20px;z-index:99;font-size:13px;
   opacity:0;pointer-events:none;transition:opacity .2s}
 #toast.show{opacity:1}
+.viewtabs{display:inline-flex;border:1px solid var(--g800);border-radius:999px;overflow:hidden}
+.viewtab{background:transparent;border:0;color:var(--g300);padding:7px 15px;cursor:pointer;
+  font-size:13px;transition:background .15s,color .15s}
+.viewtab:hover{color:var(--white)}
+.viewtab.is-on{background:var(--white);color:#000;font-weight:600}
+.alloc{background:var(--g950);border:1px solid var(--g800);border-radius:10px;padding:12px 14px;margin-top:12px}
+.alloc-row{display:flex;justify-content:space-between;gap:12px;padding:4px 0;font-size:13px}
+.alloc-total{border-top:1px solid var(--g800);margin-top:8px;padding-top:8px;font-weight:600}
+.warn-box{background:#2a2416;border:1px solid #5c4a1a;color:#fbbf24;border-radius:10px;
+  padding:11px 13px;margin-bottom:14px;font-size:13px;line-height:1.6}
 @media(max-width:700px){.grid{grid-template-columns:1fr}.hide-sm{display:none}}
 </style>
 </head>
@@ -124,15 +135,22 @@ textarea{resize:vertical;min-height:56px}
     <h1>Paid Off Clothes &mdash; Admin</h1>
     <span class="badge" id="count-badge">0 products</span>
     <span class="badge" id="dirty-badge" hidden>unsaved changes</span>
+    <span class="viewtabs">
+      <button class="viewtab is-on" id="tab-products" type="button">Products</button>
+      <button class="viewtab" id="tab-shipments" type="button">Shipments</button>
+    </span>
     <a class="btn btn-sm" href="/" target="_blank" rel="noopener" style="margin-left:8px">View storefront</a>
     <span class="sp"></span>
     <button class="btn btn-sm" id="pw-btn">Change password</button>
     <button class="btn btn-sm" id="logout-btn">Log out</button>
     <button class="btn btn-sm" id="add-btn">+ Add product</button>
+    <button class="btn btn-sm" id="add-shipment-btn" hidden>+ New shipment</button>
     <button class="btn btn-sm btn-primary" id="save-btn" disabled title="Only needed if a publish failed">Publish changes</button>
   </header>
   <main>
     <div id="errors"></div>
+
+    <div id="view-products">
     <div class="toolbar">
       <input type="text" id="search" placeholder="Search name or brand…" style="min-width:220px" />
       <select id="filter-cat"><option value="">All categories</option></select>
@@ -146,10 +164,32 @@ textarea{resize:vertical;min-height:56px}
     <table>
       <thead><tr>
         <th></th><th>Product</th><th class="hide-sm">Category</th><th class="right">Retail</th>
-        <th class="right hide-sm">Bulk</th><th class="right">Stock</th><th>Status</th><th></th>
+        <th class="right hide-sm">Bulk</th><th class="right hide-sm">Landed</th>
+        <th class="right">Stock</th><th>Status</th><th></th>
       </tr></thead>
       <tbody id="rows"></tbody>
     </table>
+    </div>
+
+    <div id="view-shipments" hidden>
+      <p class="hint" style="margin-bottom:14px">
+        A shipment records what one box actually cost you. Enter the freight and fees once and the
+        dashboard works out each unit's share &mdash; instead of typing a per-unit figure onto every
+        product. <strong>Cost data is private</strong> and never reaches the storefront.
+      </p>
+      <table>
+        <thead><tr>
+          <th>Shipment</th><th class="hide-sm">Date</th><th>Method</th>
+          <th class="right">Shipping</th><th class="right">Fees</th>
+          <th class="right hide-sm">Products</th><th class="right">Units</th>
+          <th class="hide-sm">Split by</th><th></th>
+        </tr></thead>
+        <tbody id="shipment-rows"></tbody>
+      </table>
+      <p class="hint" id="shipments-empty" hidden style="margin-top:18px">
+        No shipments yet. Press <strong>+ New shipment</strong> to record one.
+      </p>
+    </div>
   </main>
 </div>
 
@@ -162,6 +202,7 @@ textarea{resize:vertical;min-height:56px}
 let TOKEN = "";
 let DOC = null;      // products.json
 let PRICING = null;  // pricing.json
+let COSTS = null;    // costs.json — PRIVATE, never served to the storefront
 let IMAGES = [];
 let dirty = false;
 let editing = null;  // index into DOC.products, or -1 for a new product
@@ -296,6 +337,9 @@ async function boot() {
   if (!res.ok) throw new Error("Could not load catalog.");
   const data = await res.json();
   DOC = data.products; PRICING = data.pricing;
+  COSTS = data.costs || { schemaVersion: 1, products: {}, shipments: [] };
+  if (!COSTS.products) COSTS.products = {};
+  if (!Array.isArray(COSTS.shipments)) COSTS.shipments = [];
   if (!Array.isArray(DOC.products)) DOC.products = [];
   const imgRes = await api("/api/admin/images");
   IMAGES = imgRes.ok ? (await imgRes.json()).images : [];
@@ -305,6 +349,7 @@ async function boot() {
     const o = document.createElement("option"); o.value = c; o.textContent = c; sel.appendChild(o);
   });
   render();
+  renderShipments();
 }
 
 // ---------- photo optimization ----------
@@ -552,6 +597,87 @@ function fillImageSelect(sel, current) {
   sel.value = current || "";
 }
 
+// ---------- cost helpers ----------
+// Costs live in costs.json, keyed by product id rather than name so a rename never orphans them.
+// That file is private: it is blocked by PRIVATE_FILES and gitignored, because products.json is
+// fetched by every visitor and this repo is public.
+function costFor(p) {
+  if (!COSTS.products[p.id]) {
+    COSTS.products[p.id] = { name: p.name, itemCost: null, shippingMethod: null,
+                             shippingPerUnit: null, extraFeesPerUnit: null, landedCostPerUnit: null };
+  }
+  COSTS.products[p.id].name = p.name;   // keep the human-readable label in step with renames
+  return COSTS.products[p.id];
+}
+
+// Derived, never stored by hand. A null in any input gives a null total rather than a figure that
+// reads low — "not entered yet" and "free" are different, and confusing them misprices things.
+function landedCost(entry) {
+  const parts = [entry.itemCost, entry.shippingPerUnit, entry.extraFeesPerUnit];
+  if (!parts.every((v) => typeof v === "number")) return null;
+  return Math.round(parts.reduce((a, b) => a + b, 0) * 100) / 100;
+}
+
+function numOrNull(v) {
+  const s = String(v).trim();
+  if (s === "") return null;
+  const n = parseFloat(s);
+  return isFinite(n) && n >= 0 ? n : null;
+}
+
+// ---------- shipments ----------
+// A shipment is what one box actually cost. The point is to enter freight and fees ONCE and let
+// the split fall out, rather than typing a per-unit figure onto every product by hand.
+const SHIP_METHODS = [["air","Air"],["sea","Sea"],["other","Other"]];
+const ALLOC_BASES = [
+  ["units", "Per unit — every unit carries the same share"],
+  ["value", "By value — costlier items carry more"],
+];
+
+function shipUnits(s) {
+  return (s.lines || []).reduce((n, l) => n + (Number(l.qty) || 0), 0);
+}
+function shipValue(s) {
+  return (s.lines || []).reduce((n, l) => n + (Number(l.qty) || 0) * (Number(l.unitCost) || 0), 0);
+}
+
+// Splits shipping and fees across the lines and returns per-unit figures.
+//
+// Returns nulls rather than guessing when the basis can't be computed — a shipment with no units,
+// or a "by value" split where nothing has a unit cost yet. A zero here would look like free
+// freight and quietly understate every landed cost downstream.
+function allocate(s) {
+  const lines = s.lines || [];
+  const units = shipUnits(s);
+  const value = shipValue(s);
+  const shipping = Number(s.totalShippingCost) || 0;
+  const fees = Number(s.totalFees) || 0;
+  const basis = s.allocationBasis || "units";
+
+  const usable =
+    units > 0 && (basis !== "value" || value > 0) && (basis === "units" || basis === "value");
+
+  return lines.map((l) => {
+    const qty = Number(l.qty) || 0;
+    if (!usable || qty <= 0) {
+      return { productId: l.productId, qty, shippingPerUnit: null, extraFeesPerUnit: null, perUnit: null };
+    }
+    let share;
+    if (basis === "value") {
+      share = (qty * (Number(l.unitCost) || 0)) / value;   // this line's fraction of the total value
+    } else {
+      share = qty / units;                                  // this line's fraction of the units
+    }
+    const sPer = round2((shipping * share) / qty);
+    const fPer = round2((fees * share) / qty);
+    return { productId: l.productId, qty, shippingPerUnit: sPer, extraFeesPerUnit: fPer, perUnit: round2(sPer + fPer) };
+  });
+}
+
+function round2(n) { return Math.round(n * 100) / 100; }
+function productById(id) { return DOC.products.find((p) => p.id === id) || null; }
+function shipMethodLabel(m) { const f = SHIP_METHODS.find((x) => x[0] === m); return f ? f[1] : "—"; }
+
 // ---------- pricing helpers ----------
 // The ladder a product is priced on. pricing.json owns this; the dashboard never invents tiers,
 // so the existing 10+ and 20+ breaks survive every edit.
@@ -597,6 +723,7 @@ function render() {
     shown++;
     const units = unitsOf(p);
     const bulk = bestBulk(p);
+    const landed = landedCost(costFor(p));
     const tr = document.createElement("tr");
     tr.innerHTML =
       '<td>' + (p.image ? '<img class="thumb" src="' + p.image + '" alt="">' : '<span class="thumb"></span>') + '</td>' +
@@ -604,6 +731,8 @@ function render() {
       '<td class="hide-sm"><span class="pill"></span></td>' +
       '<td class="right mono">' + money(p.retailPrice) + '</td>' +
       '<td class="right mono hide-sm">' + (bulk ? money(bulk.price) + " @ " + bulk.minQty + "+" : "&mdash;") + '</td>' +
+      '<td class="right mono hide-sm"' + (landed === null ? ' style="color:var(--g500)"' : '') + '>' +
+        (landed === null ? "&mdash;" : money(landed)) + '</td>' +
       '<td class="right mono">' + units + '</td>' +
       '<td><span class="pill ' + (p.status === "sold" || units === 0 ? "sold" : "ok") + '">' +
         (p.status === "sold" ? "sold out" : units === 0 ? "no stock" : "in stock") + '</span>' +
@@ -623,6 +752,306 @@ function render() {
     b.addEventListener("click", () => openEditor(Number(b.dataset.edit))));
 }
 ["search", "filter-cat", "filter-status"].forEach((id) => $(id).addEventListener("input", render));
+
+// ---------- view switching ----------
+let VIEW = "products";
+function setView(v) {
+  VIEW = v;
+  $("view-products").hidden = v !== "products";
+  $("view-shipments").hidden = v !== "shipments";
+  $("tab-products").classList.toggle("is-on", v === "products");
+  $("tab-shipments").classList.toggle("is-on", v === "shipments");
+  $("add-btn").hidden = v !== "products";
+  $("add-shipment-btn").hidden = v !== "shipments";
+  if (v === "shipments") renderShipments();
+}
+
+// ---------- shipment list ----------
+function renderShipments() {
+  const rows = $("shipment-rows");
+  const list = COSTS.shipments || [];
+  rows.innerHTML = "";
+  $("shipments-empty").hidden = list.length > 0;
+
+  list.forEach((s, i) => {
+    const units = shipUnits(s);
+    const tr = document.createElement("tr");
+    tr.innerHTML =
+      '<td><div class="pname"></div><div class="pbrand"></div></td>' +
+      '<td class="hide-sm mono" style="font-size:12px"></td>' +
+      '<td><span class="pill"></span></td>' +
+      '<td class="right mono">' + (typeof s.totalShippingCost === "number" ? money(s.totalShippingCost) : "&mdash;") + '</td>' +
+      '<td class="right mono">' + (typeof s.totalFees === "number" ? money(s.totalFees) : "&mdash;") + '</td>' +
+      '<td class="right mono hide-sm">' + (s.lines || []).length + '</td>' +
+      '<td class="right mono">' + units + '</td>' +
+      '<td class="hide-sm mono" style="font-size:12px;color:var(--g500)"></td>' +
+      '<td class="right"><button class="btn btn-sm" data-ship="' + i + '">Edit</button></td>';
+    tr.querySelector(".pname").textContent = s.name || "(untitled)";
+    tr.querySelector(".pbrand").textContent = s.notes ? s.notes.slice(0, 60) : "";
+    tr.querySelector("td.hide-sm.mono").textContent = s.date || "—";
+    tr.querySelector(".pill").textContent = shipMethodLabel(s.method);
+    tr.querySelectorAll("td.hide-sm.mono")[1].textContent =
+      (ALLOC_BASES.find((b) => b[0] === s.allocationBasis) || ["", s.allocationBasis || "—"])[1].split(" — ")[0];
+    rows.appendChild(tr);
+  });
+
+  rows.querySelectorAll("[data-ship]").forEach((b) =>
+    b.addEventListener("click", () => openShipment(Number(b.dataset.ship))));
+}
+
+// ---------- shipment editor ----------
+function blankShipment() {
+  const today = new Date().toISOString().slice(0, 10);
+  return { id: "", name: "", date: today, method: "air", totalShippingCost: null,
+           totalFees: null, allocationBasis: "units", lines: [], notes: "" };
+}
+
+function openShipment(index) {
+  const isNew = index === -1;
+  const s = isNew ? blankShipment() : JSON.parse(JSON.stringify(COSTS.shipments[index]));
+
+  const ov = document.createElement("div");
+  ov.className = "overlay"; ov.id = "ship-editor";
+  ov.innerHTML =
+    '<div class="panel">' +
+      '<h2>' + (isNew ? "New shipment" : "Edit shipment") + '</h2>' +
+      '<p class="hint">What one box cost you. Freight and fees are entered once here and split across the products inside.</p>' +
+      '<div id="ship-errors"></div>' +
+      '<div class="grid">' +
+        '<div class="field"><label>Shipment name</label><input type="text" id="s-name" placeholder="e.g. Guangzhou air, February"></div>' +
+        '<div class="field"><label>Date</label><input type="text" id="s-date" placeholder="YYYY-MM-DD"></div>' +
+        '<div class="field"><label>Method</label><select id="s-method">' +
+          SHIP_METHODS.map((m) => '<option value="' + m[0] + '">' + m[1] + '</option>').join("") + '</select></div>' +
+        '<div class="field"><label>Split costs</label><select id="s-basis">' +
+          ALLOC_BASES.map((b) => '<option value="' + b[0] + '">' + b[1] + '</option>').join("") + '</select></div>' +
+        '<div class="field"><label>Total shipping cost</label><input type="number" step="0.01" min="0" id="s-ship" placeholder="freight for the whole box"></div>' +
+        '<div class="field"><label>Total fees</label><input type="number" step="0.01" min="0" id="s-fees" placeholder="customs, duty, handling"></div>' +
+        '<div class="field full"><label>Notes</label><textarea id="s-notes" placeholder="optional"></textarea></div>' +
+      '</div>' +
+
+      '<div class="sec"><h3>Products in this shipment</h3>' +
+        '<div id="s-lines"></div>' +
+        '<button class="btn btn-sm" id="s-add-line">+ Add product</button>' +
+        '<p class="hint" style="margin-top:8px">Quantity is how many came in this box. Unit cost is what you paid the supplier for one &mdash; needed only if you split by value.</p></div>' +
+
+      '<div class="sec"><h3>How this splits</h3>' +
+        '<div id="s-alloc"></div></div>' +
+
+      '<div class="actions">' +
+        (isNew ? "" : '<button class="btn btn-danger" id="s-delete">Delete shipment</button>') +
+        '<span class="sp"></span>' +
+        '<button class="btn" id="s-cancel">Cancel</button>' +
+        '<button class="btn" id="s-apply-costs" title="Write these per-unit figures onto the products">Apply to product costs</button>' +
+        '<button class="btn btn-primary" id="s-save">' + (isNew ? "Create shipment" : "Save shipment") + '</button>' +
+      '</div>' +
+    '</div>';
+  document.body.appendChild(ov);
+
+  let touched = false;
+  ov.addEventListener("input", () => { touched = true; });
+  ov.addEventListener("change", () => { touched = true; });
+
+  $("s-name").value = s.name || "";
+  $("s-date").value = s.date || "";
+  $("s-method").value = s.method || "air";
+  $("s-basis").value = s.allocationBasis === "value" ? "value" : "units";
+  $("s-ship").value = typeof s.totalShippingCost === "number" ? s.totalShippingCost : "";
+  $("s-fees").value = typeof s.totalFees === "number" ? s.totalFees : "";
+  $("s-notes").value = s.notes || "";
+
+  // ---- product lines ----
+  function renderLines() {
+    const wrap = $("s-lines"); wrap.innerHTML = "";
+    if (!s.lines.length) {
+      wrap.innerHTML = '<p class="hint" style="margin:0 0 8px">No products yet.</p>';
+    }
+    s.lines.forEach((ln, i) => {
+      const row = document.createElement("div"); row.className = "row";
+      const sel = document.createElement("select"); sel.style.flex = "1";
+      sel.innerHTML = '<option value="">— choose a product —</option>' +
+        DOC.products.map((p) => '<option value="' + p.id + '"></option>').join("");
+      // textContent for the option labels so a stray < in a name can't break the markup
+      [...sel.options].slice(1).forEach((o, k) => { o.textContent = DOC.products[k].name; });
+      sel.value = ln.productId || "";
+      sel.addEventListener("change", () => { s.lines[i].productId = sel.value; syncAlloc(); });
+
+      const qty = document.createElement("input");
+      qty.type = "number"; qty.min = "0"; qty.step = "1"; qty.style.width = "84px";
+      qty.placeholder = "qty"; qty.value = ln.qty ?? "";
+      qty.addEventListener("input", () => {
+        s.lines[i].qty = Math.max(0, parseInt(qty.value || "0", 10) || 0); syncAlloc();
+      });
+
+      const cost = document.createElement("input");
+      cost.type = "number"; cost.min = "0"; cost.step = "0.01"; cost.style.width = "104px";
+      cost.placeholder = "unit cost"; cost.value = typeof ln.unitCost === "number" ? ln.unitCost : "";
+      cost.addEventListener("input", () => { s.lines[i].unitCost = numOrNull(cost.value); syncAlloc(); });
+
+      const del = document.createElement("button");
+      del.className = "btn btn-sm btn-danger"; del.textContent = "Remove";
+      del.addEventListener("click", () => { s.lines.splice(i, 1); renderLines(); syncAlloc(); });
+
+      row.appendChild(sel); row.appendChild(qty); row.appendChild(cost); row.appendChild(del);
+      wrap.appendChild(row);
+    });
+  }
+  renderLines();
+  $("s-add-line").addEventListener("click", () => {
+    s.lines.push({ productId: "", qty: 0, unitCost: null }); renderLines(); syncAlloc();
+  });
+
+  // ---- live split preview ----
+  function readForm() {
+    s.name = $("s-name").value.trim();
+    s.date = $("s-date").value.trim();
+    s.method = $("s-method").value;
+    s.allocationBasis = $("s-basis").value;
+    s.totalShippingCost = numOrNull($("s-ship").value);
+    s.totalFees = numOrNull($("s-fees").value);
+    s.notes = $("s-notes").value.trim();
+    return s;
+  }
+
+  function syncAlloc() {
+    readForm();
+    const wrap = $("s-alloc");
+    const rows = allocate(s);
+    const units = shipUnits(s);
+    if (!rows.length) { wrap.innerHTML = '<p class="hint" style="margin:0">Add a product to see the split.</p>'; return; }
+
+    const unusable = rows.every((r) => r.perUnit === null);
+    let html = '<div class="alloc">';
+    rows.forEach((r) => {
+      const p = productById(r.productId);
+      html += '<div class="alloc-row"><span>' +
+        (p ? escapeHtml(p.name) : '<em style="color:var(--warn)">no product chosen</em>') +
+        ' <span class="mono">x' + r.qty + '</span></span><span class="mono">' +
+        (r.perUnit === null ? "—" :
+          money(r.shippingPerUnit) + " ship + " + money(r.extraFeesPerUnit) + " fees = " +
+          "<strong>" + money(r.perUnit) + "</strong>/unit") +
+        '</span></div>';
+    });
+    html += '<div class="alloc-row alloc-total"><span>' + units + ' units total</span><span class="mono">' +
+      money((Number(s.totalShippingCost) || 0) + (Number(s.totalFees) || 0)) + ' allocated</span></div></div>';
+    if (unusable) {
+      html += '<p class="hint" style="margin-top:8px;color:var(--warn)">' +
+        (units === 0 ? "Set a quantity above zero to split the cost."
+                     : "Splitting by value needs a unit cost on at least one line.") + '</p>';
+    }
+    wrap.innerHTML = html;
+  }
+  ["s-ship","s-fees","s-basis","s-method"].forEach((id) => $(id).addEventListener("input", syncAlloc));
+  $("s-basis").addEventListener("change", syncAlloc);
+  syncAlloc();
+
+  // ---- close safely ----
+  const discard = () => {
+    if (touched && !confirm("Discard this shipment?\n\nAnything you have entered will be lost.")) return;
+    ov.remove();
+  };
+  $("s-cancel").addEventListener("click", discard);
+  ov.addEventListener("click", (e) => { if (e.target === ov) discard(); });
+  document.addEventListener("keydown", function esc(e) {
+    if (!document.body.contains(ov)) { document.removeEventListener("keydown", esc); return; }
+    if (e.key === "Escape") discard();
+  });
+
+  function validate() {
+    readForm();
+    const errs = [];
+    if (!s.name) errs.push("Shipment name is required.");
+    if (s.date && !/^\d{4}-\d{2}-\d{2}$/.test(s.date)) errs.push("Date must look like YYYY-MM-DD.");
+    if (!s.lines.length) errs.push("Add at least one product.");
+    if (s.lines.some((l) => !l.productId)) errs.push("Every line needs a product chosen.");
+    const ids = s.lines.map((l) => l.productId);
+    if (new Set(ids).size !== ids.length) errs.push("The same product appears on more than one line — combine them.");
+    if (s.lines.some((l) => !(Number(l.qty) > 0))) errs.push("Every line needs a quantity above zero.");
+    return errs;
+  }
+
+  function showErrors(errs) {
+    $("ship-errors").innerHTML = '<div class="err-box">' + errs.join("\n") + '</div>';
+    $("ship-errors").scrollIntoView({ behavior: "smooth", block: "center" });
+  }
+
+  // ---- apply the split onto the products ----
+  $("s-apply-costs").addEventListener("click", async () => {
+    const errs = validate();
+    if (errs.length) return showErrors(errs);
+    const rows = allocate(s);
+    if (rows.some((r) => r.perUnit === null)) {
+      return showErrors(["The split can't be calculated yet — check quantities, and unit costs if splitting by value."]);
+    }
+    const names = rows.map((r) => { const p = productById(r.productId); return p ? p.name : r.productId; });
+    if (!confirm(
+      "Write these per-unit figures onto " + rows.length + " product(s)?\n\n" + names.join("\n") +
+      "\n\nThis replaces their current shipping and fees per unit. Item cost is not touched."
+    )) return;
+
+    rows.forEach((r) => {
+      const p = productById(r.productId);
+      if (!p) return;
+      const ce = costFor(p);
+      ce.shippingPerUnit = r.shippingPerUnit;
+      ce.extraFeesPerUnit = r.extraFeesPerUnit;
+      ce.shippingMethod = s.method;
+      if (typeof (s.lines.find((l) => l.productId === r.productId) || {}).unitCost === "number") {
+        ce.itemCost = s.lines.find((l) => l.productId === r.productId).unitCost;
+      }
+      ce.landedCostPerUnit = landedCost(ce);
+    });
+    render();
+    toast("Applied to " + rows.length + " product(s) — press Save shipment to write it");
+  });
+
+  // ---- delete ----
+  if (!isNew) {
+    $("s-delete").addEventListener("click", async () => {
+      if (!confirm('Delete "' + (s.name || "this shipment") + '"?\n\nThe per-unit costs already ' +
+                   'written onto products are NOT removed — only this shipment record.')) return;
+      const removed = COSTS.shipments[index];
+      COSTS.shipments.splice(index, 1);
+      renderShipments();
+      let r;
+      try { r = await publishNow(); } catch (e) { r = { ok: false, errors: ["Could not reach the server: " + e.message] }; }
+      if (!r.ok) {
+        COSTS.shipments.splice(index, 0, removed);
+        renderShipments(); showErrors(r.errors); return;
+      }
+      ov.remove(); renderShipments(); toast("Shipment deleted");
+    });
+  }
+
+  // ---- save ----
+  $("s-save").addEventListener("click", async () => {
+    const errs = validate();
+    if (errs.length) return showErrors(errs);
+
+    if (isNew) {
+      s.id = slugify(s.name) || "shipment";
+      let n = 2, base = s.id;
+      while ((COSTS.shipments || []).some((x) => x.id === s.id)) s.id = base + "-" + n++;
+      COSTS.shipments.push(s);
+    } else {
+      COSTS.shipments[index] = s;
+    }
+
+    const btn = $("s-save"); const label = btn.textContent;
+    btn.disabled = true; btn.textContent = "Saving…";
+    renderShipments();
+    let r;
+    try { r = await publishNow(); } catch (e) { r = { ok: false, errors: ["Could not reach the server: " + e.message] }; }
+    btn.disabled = false; btn.textContent = label;
+
+    if (!r.ok) { showErrors(r.errors); return; }
+    ov.remove(); renderShipments(); render();
+    toast(isNew ? '"' + s.name + '" created' : '"' + s.name + '" saved');
+  });
+}
+
+function escapeHtml(t) {
+  return String(t).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
 
 // ---------- editor ----------
 function blankProduct() {
@@ -679,6 +1108,24 @@ function openEditor(index) {
       '<div class="sec"><h3>Quantity pricing</h3>' +
         '<div id="f-tiers"></div>' +
         '<p class="tier-note" id="tier-note"></p></div>' +
+
+      '<div class="sec"><h3>Cost &amp; landed cost <span style="color:var(--g500);text-transform:none;letter-spacing:0">— private, never shown to customers</span></h3>' +
+        '<div class="grid">' +
+          '<div class="field"><label>Item cost per unit</label><input type="number" step="0.01" min="0" id="c-item" placeholder="what you paid"></div>' +
+          '<div class="field"><label>Shipping method</label><select id="c-method">' +
+            '<option value="">— not set —</option><option value="air">Air</option>' +
+            '<option value="sea">Sea</option><option value="other">Other</option></select></div>' +
+          '<div class="field"><label>Shipping per unit</label><input type="number" step="0.01" min="0" id="c-ship" placeholder="freight share"></div>' +
+          '<div class="field"><label>Extra fees per unit</label><input type="number" step="0.01" min="0" id="c-fees" placeholder="duty, handling"></div>' +
+        '</div>' +
+        '<div class="row" style="margin-top:14px;align-items:baseline">' +
+          '<span class="mono" style="min-width:150px;color:var(--g300);font-size:12px">TRUE LANDED COST</span>' +
+          '<span class="mono" id="c-landed" style="font-size:18px;color:var(--white)">—</span>' +
+          '<span class="hint" id="c-landed-note" style="margin-left:10px"></span>' +
+        '</div>' +
+        '<p class="hint" style="margin-top:8px">Landed cost is calculated, not typed: item + shipping + fees. ' +
+        'Leave a box empty and it stays blank rather than counting as zero. Shipments are not split ' +
+        'across products automatically yet.</p></div>' +
 
       '<div class="sec"><h3>Status</h3>' +
         '<div class="check" style="margin-bottom:9px"><input type="checkbox" id="f-sold"><label for="f-sold">Sold out (disables Buy and Add to Cart)</label></div>' +
@@ -803,6 +1250,32 @@ function openEditor(index) {
   renderTiers();
   $("f-cat").addEventListener("change", renderTiers);
 
+  // ---- cost fields ----
+  const costEntry = index === -1
+    ? { itemCost: null, shippingMethod: null, shippingPerUnit: null, extraFeesPerUnit: null }
+    : Object.assign({}, costFor(DOC.products[index]));
+  const setVal = (id, v) => { $(id).value = (typeof v === "number") ? v : ""; };
+  setVal("c-item", costEntry.itemCost);
+  setVal("c-ship", costEntry.shippingPerUnit);
+  setVal("c-fees", costEntry.extraFeesPerUnit);
+  $("c-method").value = costEntry.shippingMethod || "";
+
+  function syncLanded() {
+    const draft = {
+      itemCost: numOrNull($("c-item").value),
+      shippingPerUnit: numOrNull($("c-ship").value),
+      extraFeesPerUnit: numOrNull($("c-fees").value),
+    };
+    const total = landedCost(draft);
+    $("c-landed").textContent = total === null ? "—" : money(total);
+    const missing = ["c-item", "c-ship", "c-fees"].filter((id) => numOrNull($(id).value) === null).length;
+    $("c-landed-note").textContent = total === null
+      ? `${missing} field${missing === 1 ? "" : "s"} still empty`
+      : "item + shipping + fees";
+  }
+  ["c-item", "c-ship", "c-fees"].forEach((id) => $(id).addEventListener("input", syncLanded));
+  syncLanded();
+
   // ---- apply / delete / cancel ----
   const discard = (reason) => {
     if (touched && !confirm(
@@ -821,11 +1294,30 @@ function openEditor(index) {
 
   if (index !== -1) {
     $("ed-delete").addEventListener("click", async () => {
-      if (!confirm('Delete "' + p.name + '"?\n\nThis removes it from the catalog and its pricing ' +
-                   'entry, and publishes immediately. The previous catalog is kept in backups/.')) return;
       const removed = DOC.products[index];
+      // A shipment line pointing at a deleted product is refused by the server, so without this
+      // the delete fails with "unknown productId" — an error the owner can do nothing about.
+      // Find them first, name the shipments, and clean the lines in the same save.
+      const affected = (COSTS.shipments || []).filter((s) =>
+        (s.lines || []).some((l) => l.productId === removed.id));
+      const shipWarning = affected.length
+        ? "\n\nIt also appears in " + affected.length + " shipment(s):\n" +
+          affected.map((s) => "  \u2022 " + (s.name || s.id)).join("\n") +
+          "\nThose lines will be removed too. The shipment totals stay as entered."
+        : "";
+      if (!confirm('Delete "' + p.name + '"?\n\nThis removes it from the catalog, its pricing entry ' +
+                   'and its cost record, and publishes immediately. The previous catalog is kept ' +
+                   'in backups/.' + shipWarning)) return;
+
       const removedPricing = PRICING.products[removed.name];
       delete PRICING.products[removed.name];
+      const removedCost = COSTS.products[removed.id];
+      delete COSTS.products[removed.id];
+      // Deep copy so a failed publish restores the shipments exactly as they were.
+      const shipmentsBefore = JSON.parse(JSON.stringify(COSTS.shipments || []));
+      (COSTS.shipments || []).forEach((s) => {
+        s.lines = (s.lines || []).filter((l) => l.productId !== removed.id);
+      });
       DOC.products.splice(index, 1);
       render();
 
@@ -837,13 +1329,16 @@ function openEditor(index) {
         // Put it back rather than leaving the list disagreeing with the file on disk.
         DOC.products.splice(index, 0, removed);
         if (removedPricing) PRICING.products[removed.name] = removedPricing;
+        if (removedCost) COSTS.products[removed.id] = removedCost;
+        COSTS.shipments = shipmentsBefore;
         setDirty(false); render();
         $("ed-errors").innerHTML = '<div class="err-box">Delete failed, nothing was removed:\n' +
           result.errors.join("\n") + '</div>';
         $("ed-errors").scrollIntoView({ behavior: "smooth", block: "center" });
         return;
       }
-      ov.remove(); render(); toast('"' + removed.name + '" deleted and published');
+      ov.remove(); render(); renderShipments();
+      toast('"' + removed.name + '" deleted' + (affected.length ? " \u00b7 " + affected.length + " shipment line(s) cleaned" : ""));
     });
   }
 
@@ -877,6 +1372,14 @@ function openEditor(index) {
     p.status = $("f-sold").checked ? "sold" : "available";
     p.featured = $("f-featured").checked;
 
+    // Costs are keyed by id, which a new product only gets below — stash and apply after.
+    const costDraft = {
+      itemCost: numOrNull($("c-item").value),
+      shippingMethod: $("c-method").value || null,
+      shippingPerUnit: numOrNull($("c-ship").value),
+      extraFeesPerUnit: numOrNull($("c-fees").value),
+    };
+
     // Keep the simple bulk pair in step with the ladder: first tier that actually discounts.
     const ladder = ladderFor(p);
     let bp = null, bm = null;
@@ -901,6 +1404,14 @@ function openEditor(index) {
       }
       DOC.products[index] = p;
     }
+
+    // Apply the cost draft now that the product definitely has an id.
+    const ce = costFor(p);
+    ce.itemCost = costDraft.itemCost;
+    ce.shippingMethod = costDraft.shippingMethod;
+    ce.shippingPerUnit = costDraft.shippingPerUnit;
+    ce.extraFeesPerUnit = costDraft.extraFeesPerUnit;
+    ce.landedCostPerUnit = landedCost(ce);
 
     const entry = PRICING.products[name] || { category: p.category, prices: {} };
     entry.category = p.category;
@@ -941,6 +1452,9 @@ function openEditor(index) {
 }
 
 $("add-btn").addEventListener("click", () => openEditor(-1));
+$("add-shipment-btn").addEventListener("click", () => openShipment(-1));
+$("tab-products").addEventListener("click", () => setView("products"));
+$("tab-shipments").addEventListener("click", () => setView("shipments"));
 
 // ---------- publish ----------
 // One place that writes to disk. Adding, editing and deleting all call this straight away, so
@@ -950,7 +1464,7 @@ $("add-btn").addEventListener("click", () => openEditor(-1));
 async function publishNow() {
   const res = await api("/api/admin/save", {
     method: "POST",
-    body: JSON.stringify({ products: DOC, pricing: PRICING }),
+    body: JSON.stringify({ products: DOC, pricing: PRICING, costs: COSTS }),
   });
   const out = await res.json().catch(() => ({ ok: false, error: "Server returned a non-JSON response." }));
   if (!res.ok || !out.ok) {

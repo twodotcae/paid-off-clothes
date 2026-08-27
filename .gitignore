@@ -15,6 +15,8 @@ subscribers.json
 # written anywhere, but the hash is still a credential and is per-machine, so it stays untracked.
 admin_auth.json
 admin_token.txt
+# supplier costs and landed cost — business data, and this repo is public
+costs.json
 *.key
 *.pem
 .env

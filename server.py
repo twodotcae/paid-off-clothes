@@ -23,6 +23,7 @@ SUBSCRIBERS_FILE = os.path.join(DIR, "subscribers.json")
 PRODUCTS_FILE = os.path.join(DIR, "products.json")
 PRICING_FILE = os.path.join(DIR, "pricing.json")
 ADMIN_AUTH_FILE = os.path.join(DIR, "admin_auth.json")
+COSTS_FILE = os.path.join(DIR, "costs.json")
 BACKUP_DIR = os.path.join(DIR, "backups")
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 lock = threading.Lock()
@@ -40,6 +41,9 @@ PRIVATE_FILES = {
     # The admin token. Serving this would hand out write access to the catalog.
     "admin_token.txt",
     "admin_auth.json",
+    # Supplier costs and landed cost. products.json is fetched by every visitor; this must never
+    # be, or the storefront would hand out the margin on every item.
+    "costs.json",
 }
 
 
@@ -235,6 +239,94 @@ def save_json_pretty(path, data):
     os.replace(tmp, path)  # atomic: a crash mid-write can't leave a truncated catalog
 
 
+SHIPPING_METHODS = ("air", "sea", "other")
+ALLOCATION_BASES = ("units", "value", "weight")
+
+
+def _money_or_none(v):
+    return v is None or (isinstance(v, (int, float)) and not isinstance(v, bool) and v >= 0)
+
+
+def recompute_landed_costs(costs):
+    """landedCostPerUnit is derived, always, so it can never drift from its three inputs.
+
+    A null in any input yields a null landed cost rather than a total that silently reads low —
+    "not entered yet" and "costs nothing" are different things, and conflating them is how you
+    end up pricing against a number that was never real.
+    """
+    for entry in (costs.get("products") or {}).values():
+        parts = [entry.get("itemCost"), entry.get("shippingPerUnit"), entry.get("extraFeesPerUnit")]
+        entry["landedCostPerUnit"] = round(sum(parts), 2) if all(isinstance(x, (int, float)) for x in parts) else None
+    return costs
+
+
+def validate_costs(costs, products):
+    """Rejects a malformed cost payload. Cost data never reaches a customer, but a bad write here
+    still corrupts the file the future allocator will read."""
+    errors = []
+    if not isinstance(costs, dict):
+        return ["costs must be an object"]
+    if not isinstance(costs.get("products"), dict):
+        return ["costs.products must be an object keyed by product id"]
+    if not isinstance(costs.get("shipments"), list):
+        return ["costs.shipments must be an array"]
+
+    known_ids = {p.get("id") for p in (products or {}).get("products", [])}
+
+    for pid, entry in costs["products"].items():
+        if not isinstance(entry, dict):
+            errors.append(f"costs for '{pid}' must be an object")
+            continue
+        for field in ("itemCost", "shippingPerUnit", "extraFeesPerUnit"):
+            if not _money_or_none(entry.get(field)):
+                errors.append(f"costs '{pid}': {field} must be a number >= 0 or null")
+        method = entry.get("shippingMethod")
+        if method is not None and method not in SHIPPING_METHODS:
+            errors.append(f"costs '{pid}': shippingMethod must be one of {', '.join(SHIPPING_METHODS)} or null")
+
+    seen = set()
+    for i, s in enumerate(costs["shipments"]):
+        where = f"shipment #{i + 1}"
+        if not isinstance(s, dict):
+            errors.append(f"{where} must be an object")
+            continue
+        sid = s.get("id")
+        if not sid or not isinstance(sid, str):
+            errors.append(f"{where}: missing id")
+        elif sid in seen:
+            errors.append(f"{where}: duplicate id '{sid}'")
+        else:
+            seen.add(sid)
+        if not s.get("name"):
+            errors.append(f"{where}: missing name")
+        if s.get("method") not in SHIPPING_METHODS:
+            errors.append(f"{where}: method must be one of {', '.join(SHIPPING_METHODS)}")
+        for field in ("totalShippingCost", "totalFees"):
+            if not _money_or_none(s.get(field)):
+                errors.append(f"{where}: {field} must be a number >= 0 or null")
+        if s.get("allocationBasis") not in ALLOCATION_BASES:
+            errors.append(f"{where}: allocationBasis must be one of {', '.join(ALLOCATION_BASES)}")
+        lines = s.get("lines")
+        if not isinstance(lines, list):
+            errors.append(f"{where}: lines must be an array")
+            continue
+        for j, ln in enumerate(lines):
+            if not isinstance(ln, dict):
+                errors.append(f"{where} line {j + 1}: must be an object")
+                continue
+            # A shipment line pointing at a product that no longer exists would silently drop its
+            # share of the freight when the allocator runs.
+            if known_ids and ln.get("productId") not in known_ids:
+                errors.append(f"{where} line {j + 1}: unknown productId '{ln.get('productId')}'")
+            qty = ln.get("qty")
+            if not isinstance(qty, int) or isinstance(qty, bool) or qty < 0:
+                errors.append(f"{where} line {j + 1}: qty must be an integer >= 0")
+            if not _money_or_none(ln.get("unitCost")):
+                errors.append(f"{where} line {j + 1}: unitCost must be a number >= 0 or null")
+
+    return errors
+
+
 def validate_catalog(products, pricing):
     """Reject a malformed save outright rather than writing a catalog the site can't render.
 
@@ -354,7 +446,8 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             with lock:
                 products = load_json(PRODUCTS_FILE, {})
                 pricing = load_json(PRICING_FILE, {})
-            self._send_json({"ok": True, "products": products, "pricing": pricing})
+                costs = load_json(COSTS_FILE, {"schemaVersion": 1, "products": {}, "shipments": []})
+            self._send_json({"ok": True, "products": products, "pricing": pricing, "costs": costs})
             return
 
         # Unauthenticated on purpose: the login screen has to know whether a password exists yet
@@ -577,16 +670,26 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             payload = self._read_json()
             products = payload.get("products")
             pricing = payload.get("pricing")
+            costs = payload.get("costs")   # optional: an older dashboard simply won't send it
 
             problems = validate_catalog(products, pricing)
+            if costs is not None:
+                problems += validate_costs(costs, products)
             if problems:
-                self._send_json({"ok": False, "errors": problems}, status=400)
+                self._send_json({"ok": False, "errors": problems[:25]}, status=400)
                 return
 
+            if costs is not None:
+                costs = recompute_landed_costs(costs)
+
             with lock:
-                backups = [b for b in (backup_file(PRODUCTS_FILE), backup_file(PRICING_FILE)) if b]
+                targets = [PRODUCTS_FILE, PRICING_FILE] + ([COSTS_FILE] if costs is not None else [])
+                backups = [b for b in (backup_file(t) for t in targets) if b]
                 save_json_pretty(PRODUCTS_FILE, products)
                 save_json_pretty(PRICING_FILE, pricing)
+                if costs is not None:
+                    save_json_pretty(COSTS_FILE, costs)
+                    os.chmod(COSTS_FILE, 0o600)
             self._send_json({
                 "ok": True,
                 "products": len(products.get("products", [])),

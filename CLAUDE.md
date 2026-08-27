@@ -371,6 +371,37 @@ on save. Renaming a product moves its pricing entry with it; deleting one remove
 Writes go through `save_json_pretty()`, which writes to a temp file and `os.replace`s it — atomic,
 so a crash mid-write can't leave a truncated catalog — and keeps the files indented and diffable.
 
+## Landed cost (foundation)
+
+`costs.json` holds what stock actually costs: supplier price, freight allocation, fees, and the
+landed cost that falls out of them. It is **private and never committed** — it is in
+`PRIVATE_FILES` (so `/costs.json` 404s) and in `.gitignore`, and `tools/pre-commit` blocks it even
+when forced. **The GitHub repo is public and `products.json` is fetched by every visitor**, which
+is exactly why cost data does not live in either.
+
+Keyed by the product's **`id`**, not its name, so renaming a product never orphans its costs.
+
+- `itemCost`, `shippingPerUnit`, `extraFeesPerUnit` — per unit, entered by hand for now.
+- `shippingMethod` — `air` / `sea` / `other` / `null`.
+- `landedCostPerUnit` — **derived**, recomputed by `recompute_landed_costs()` on every save. Never
+  hand-edit it; a typed value is overwritten. **A null in any input yields a null total**, not a
+  low one: "not entered yet" and "costs nothing" are different, and conflating them misprices
+  stock.
+
+`shipments` in the same file is the structure the future allocator will read: name, date, method,
+`totalShippingCost`, `totalFees`, `allocationBasis` (`units` / `value` / `weight`) and
+`lines[{productId, qty, unitCost}]`. **Nothing is allocated automatically yet** — the per-unit
+figures above are still typed in. `allocationBasis` is recorded now so the split is an explicit
+choice later rather than an assumption baked into whoever writes the allocator.
+
+`validate_costs()` rejects negative or non-numeric money, unknown shipping methods, duplicate
+shipment ids, and a shipment line pointing at a product that no longer exists — that last one
+matters because such a line would silently drop its share of the freight when the allocator runs.
+
+The dashboard shows all of this in a **Cost & landed cost** section in the product editor, with the
+landed figure computed live and read-only, plus a `Landed` column in the product list. Nothing
+cost-related is rendered on the storefront.
+
 ## Serving private files
 
 `server.py` uses `SimpleHTTPRequestHandler`, which serves the whole project directory. `PRIVATE_FILES`
@@ -421,6 +452,33 @@ Anything real (payments, an admin view, sending mail) needs a proper backend beh
 - **Authenticity proof is post-purchase only.** At these prices buyers will assume counterfeit, so
   the site should explain the subsidy and the receipt guarantee up front; nothing on the page does
   that yet.
+
+## Guards that must not be removed
+
+Three defences found missing in a project-wide audit. Each is cheap and each closes a path that a
+disabled button alone does not.
+
+- **`addToCart()` refuses a sold-out style itself.** The buttons are disabled for `status: "sold"`,
+  but the function had no guard, so a stale page or any future caller walked a sold item into the
+  cart. It returns `"unavailable"`; the button-label map must keep an entry for that value or the
+  button renders `undefined`.
+- **`loadCart()` drops lines whose product is now sold or whose size has no units.** It previously
+  dropped only lines whose style or size had vanished, so a cart saved in `localStorage` before a
+  sell-out survived and carried an unavailable item to checkout.
+- **Deleting a product clears its lines from every shipment.** `validate_costs()` rejects a
+  shipment line pointing at an unknown `productId` — correct, but without the dashboard cleaning
+  those lines the delete failed with "unknown productId", an error the owner cannot act on. The
+  confirm dialog now names the affected shipments, and a failed publish restores them.
+
+**The pre-commit hook needs updating whenever a new secret file is introduced.** It is a fixed list
+of filenames, not a rule: `costs.json` was added to the repo and the hook happily committed it
+until the pattern was extended. Anything new that holds credentials or business data goes in
+`tools/pre-commit`, `.gitignore` and `PRIVATE_FILES` together.
+
+**Cross-platform:** every path goes through `os.path.join`, there are no shell-outs and no absolute
+paths, so the server runs unchanged on Windows. One caveat: `os.chmod(..., 0o600)` on
+`admin_auth.json` and `costs.json` is largely a no-op on Windows, so those files rely on the user
+profile's own ACLs there rather than POSIX permissions.
 
 ## Never poll on a timer
 
