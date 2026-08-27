@@ -9,7 +9,7 @@
 #
 # Bypass deliberately (you had better be sure) with: git commit --no-verify
 
-blocked=$(git diff --cached --name-only | grep -E '(^|/)(admin_auth\.json|admin_token\.txt|costs\.json|secrets\.json|\.env(\..*)?)$|\.(key|pem)$')
+blocked=$(git diff --cached --name-only | grep -E '(^|/)(admin_auth\.json|admin_token\.txt|costs\.json|secrets\.json|\.env(\..*)?)$|\.(key|pem|db|db-wal|db-shm)$')
 
 if [ -n "$blocked" ]; then
   echo "COMMIT BLOCKED — these files hold credentials and must never reach GitHub:" >&2

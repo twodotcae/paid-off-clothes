@@ -16,6 +16,14 @@ from datetime import datetime
 from urllib.parse import parse_qs, urlsplit
 
 DIR = os.path.dirname(os.path.abspath(__file__))
+
+# The database is the source of truth. products.json and pricing.json are projections rewritten on
+# every save, which is what lets this cutover happen without changing one line of script.js or
+# index.html — the storefront still fetches the same static files at the same URLs.
+import importlib.util as _ilu
+_store_spec = _ilu.spec_from_file_location("_store", os.path.join(DIR, "db", "store.py"))
+store = _ilu.module_from_spec(_store_spec)
+_store_spec.loader.exec_module(store)
 CLICKS_FILE = os.path.join(DIR, "clicks.json")
 BIDS_FILE = os.path.join(DIR, "bids.json")
 ORDERS_FILE = os.path.join(DIR, "orders.json")
@@ -44,7 +52,15 @@ PRIVATE_FILES = {
     # Supplier costs and landed cost. products.json is fetched by every visitor; this must never
     # be, or the storefront would hand out the margin on every item.
     "costs.json",
+    # The database holds everything the JSON files do PLUS costs, orders and customer emails in
+    # one file. Serving it would be the single worst leak in the project.
+    "paidoff.db",
+    "paidoff.db-wal",
+    "paidoff.db-shm",
 }
+
+# Whole directories that must never be served, matched on any path segment.
+PRIVATE_DIRS = {"db", "backups", "tools"}
 
 
 # Uploads are written into images/ and served straight back, so the extension whitelist is a
@@ -430,8 +446,11 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         query = parse_qs(urlsplit(self.path).query)
 
         # Guard before anything can fall through to the static file handler.
+        # PRIVATE_FILES matches on the leaf name, which does not cover a whole directory — db/
+        # holds the schema and the migration code, and there is no reason to serve source.
         leaf = os.path.basename(path).lower()
-        if leaf in PRIVATE_FILES or leaf.startswith("."):
+        parts = [p.lower() for p in path.split("/") if p]
+        if leaf in PRIVATE_FILES or leaf.startswith(".") or any(p in PRIVATE_DIRS for p in parts):
             self.send_error(404)
             return
 
@@ -444,9 +463,9 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             if not self._authed():
                 return
             with lock:
-                products = load_json(PRODUCTS_FILE, {})
-                pricing = load_json(PRICING_FILE, {})
-                costs = load_json(COSTS_FILE, {"schemaVersion": 1, "products": {}, "shipments": []})
+                products = store.products_doc()
+                pricing = store.pricing_doc()
+                costs = store.costs_doc()
             self._send_json({"ok": True, "products": products, "pricing": pricing, "costs": costs})
             return
 
@@ -486,15 +505,15 @@ class Handler(http.server.SimpleHTTPRequestHandler):
 
         if path == "/api/stats":
             with lock:
-                data = load_json(CLICKS_FILE, {})
+                data = store.clicks_doc()
             self._send_json(data)
             return
 
         if path == "/api/bid":
             item = (query.get("item") or [""])[0]
             with lock:
-                bids = load_json(BIDS_FILE, {})
-            self._send_json(bids.get(item, {}))
+                current = store.bid_for(item)
+            self._send_json(current)
             return
 
         # Pirate Ship has no API, so labels are bought by uploading a spreadsheet. This emits one
@@ -502,7 +521,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         # ounces; add Length/Width/Height columns here if you start shipping boxed items.
         if path == "/api/labels.csv":
             with lock:
-                orders = load_json(ORDERS_FILE, {})
+                orders = store.all_orders()
             buf = io.StringIO()
             writer = csv.writer(buf)
             writer.writerow([
@@ -545,8 +564,8 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         if path == "/api/orders":
             email = (query.get("email") or [""])[0].strip().lower()
             with lock:
-                orders = load_json(ORDERS_FILE, {})
-            self._send_json(orders.get(email, []))
+                found = store.orders_for(email)
+            self._send_json(found)
             return
 
         super().do_GET()
@@ -683,13 +702,10 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 costs = recompute_landed_costs(costs)
 
             with lock:
-                targets = [PRODUCTS_FILE, PRICING_FILE] + ([COSTS_FILE] if costs is not None else [])
+                # Back up the projections AND the database, so a bad save is recoverable either way.
+                targets = [PRODUCTS_FILE, PRICING_FILE, COSTS_FILE, store.DB_PATH]
                 backups = [b for b in (backup_file(t) for t in targets) if b]
-                save_json_pretty(PRODUCTS_FILE, products)
-                save_json_pretty(PRICING_FILE, pricing)
-                if costs is not None:
-                    save_json_pretty(COSTS_FILE, costs)
-                    os.chmod(COSTS_FILE, 0o600)
+                store.save_catalog(products, pricing, costs)
             self._send_json({
                 "ok": True,
                 "products": len(products.get("products", [])),
@@ -701,10 +717,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             payload = self._read_json()
             name = payload.get("name", "") if isinstance(payload, dict) else ""
             if name:
-                with lock:
-                    data = load_json(CLICKS_FILE, {})
-                    data[name] = data.get(name, 0) + 1
-                    save_json(CLICKS_FILE, data)
+                store.bump_click(name)
             self._send_json({"ok": True})
             return
 
@@ -720,14 +733,13 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 self._send_json({"ok": False, "error": "Invalid bid."})
                 return
             with lock:
-                bids = load_json(BIDS_FILE, {})
-                current = bids.get(item)
-                if current and amount <= current.get("amount", 0):
+                current = store.bid_for(item)
+                if current and amount <= (current.get("amount") or 0):
                     self._send_json({"ok": False, "error": "Someone already bid higher.", "current": current})
                     return
-                bids[item] = {"amount": amount, "name": name, "time": time.time()}
-                save_json(BIDS_FILE, bids)
-                current_bid = bids[item]
+                now = time.time()
+                store.set_bid(item, amount, name, now)
+                current_bid = {"amount": amount, "name": name, "time": now}
             self._send_json({"ok": True, "current": current_bid})
             return
 
@@ -749,8 +761,9 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 self._send_json({"ok": False, "error": "Invalid order."})
                 return
             with lock:
-                orders = load_json(ORDERS_FILE, {})
-                order_id = 4000 + sum(len(v) for v in orders.values())
+                # MAX(id)+1 from the database, not a count of rows: counting produced a duplicate
+                # id the moment an order was ever removed.
+                order_id = store.next_order_id()
                 order = {
                     "id": order_id,
                     "items": items,
@@ -762,8 +775,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                     "time": time.time(),
                     "status": "Hold — pending shipping",
                 }
-                orders.setdefault(email, []).append(order)
-                save_json(ORDERS_FILE, orders)
+                store.add_order(order_id, email, order)
             self._send_json({"ok": True, "id": order_id})
             return
 
@@ -774,15 +786,10 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 self._send_json({"ok": False, "error": "Invalid email."})
                 return
             with lock:
-                subs = load_json(SUBSCRIBERS_FILE, {})
-                is_new = email not in subs
-                if is_new:
-                    # TODO(resend): once the Resend account/API key are set up, send the
-                    # "Welcome to Paid Off Clothes" email here (or via a separate script
-                    # that reads subscribers.json) — plus new-drop announcements to
-                    # everyone in this file going forward. Not wired up yet.
-                    subs[email] = {"time": time.time()}
-                    save_json(SUBSCRIBERS_FILE, subs)
+                # TODO(resend): once the Resend account/API key are set up, send the
+                # "Welcome to Paid Off Clothes" email here — plus new-drop announcements to
+                # everyone in the subscribers table going forward. Not wired up yet.
+                is_new = store.subscribe(email, time.time())
             self._send_json({"ok": True, "new": is_new})
             return
 

@@ -17,6 +17,10 @@ admin_auth.json
 admin_token.txt
 # supplier costs and landed cost — business data, and this repo is public
 costs.json
+# the database: costs, orders and customer emails in one file
+paidoff.db
+paidoff.db-wal
+paidoff.db-shm
 *.key
 *.pem
 .env
