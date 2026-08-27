@@ -206,6 +206,10 @@ textarea{resize:vertical;min-height:56px}
         <span class="hint" id="order-summary"></span>
       </div>
       <div id="order-errors"></div>
+      <p class="hint" style="margin:-6px 0 14px">
+        Pending orders hold their stock for 30 minutes and are then released automatically.
+        <button class="btn btn-sm" id="expire-now-btn" style="margin-left:8px">Release expired holds now</button>
+      </p>
       <table>
         <thead><tr>
           <th>Order</th><th class="hide-sm">Placed</th><th>Customer</th>
@@ -1649,6 +1653,26 @@ $("tab-products").addEventListener("click", () => setView("products"));
 $("tab-shipments").addEventListener("click", () => setView("shipments"));
 $("tab-orders").addEventListener("click", () => setView("orders"));
 $("order-filter").addEventListener("change", () => renderOrders({}));
+$("expire-now-btn").addEventListener("click", async () => {
+  const btn = $("expire-now-btn"); const label = btn.textContent;
+  btn.disabled = true; btn.textContent = "Checking…";
+  $("order-errors").innerHTML = "";
+  try {
+    const res = await api("/api/admin/order", {
+      method: "POST", body: JSON.stringify({ action: "expire_now" }),
+    });
+    const out = await res.json();
+    if (!res.ok || !out.ok) {
+      $("order-errors").innerHTML = '<div class="err-box">' + (out.error || "Could not run the cleanup.") + '</div>';
+      return;
+    }
+    toast(out.expired ? "Released " + out.expired + " expired hold(s)" : "Nothing had expired");
+    await loadOrders();
+    await refreshCatalogAfterStockChange();
+  } catch (e) {
+    $("order-errors").innerHTML = '<div class="err-box">Could not reach the server.</div>';
+  } finally { btn.disabled = false; btn.textContent = label; }
+});
 
 // ---------- publish ----------
 // One place that writes to disk. Adding, editing and deleting all call this straight away, so

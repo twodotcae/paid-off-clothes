@@ -14,6 +14,16 @@ import json, secrets, sqlite3, threading, time
 
 STATUSES = ("pending", "paid", "fulfilled", "cancelled", "failed", "refunded")
 
+# How long a pending order holds its stock. Without this an abandoned checkout reserves inventory
+# forever: the units are invisible to every other buyer but were never sold, so the shop quietly
+# runs out of stock it still owns.
+RESERVATION_TTL_SECONDS = 30 * 60
+
+# The sweep runs opportunistically on request paths, so this stops a busy shop re-running it on
+# every single order.
+_SWEEP_MIN_INTERVAL = 60
+_last_sweep = 0.0
+
 # Mirrors the shipping block at the top of script.js. Kept in step by test_pricing_parity.
 CATEGORY_WEIGHT_OZ = {"T-Shirts": 7, "Belts": 10, "Shoes": 40, "Backpacks": 32}
 DEFAULT_WEIGHT_OZ = 8
@@ -383,6 +393,50 @@ def refund_order(conn, order_id, event_id, restore_stock=True, provider="manual"
         except Exception:
             conn.rollback()
             raise
+
+
+def expire_pending(conn, ttl_seconds=RESERVATION_TTL_SECONDS, now=None):
+    """Cancel pending orders whose reservation has run out, releasing their stock.
+
+    Safe to run as often as you like. Two independent reasons:
+
+    1. It only ever touches orders that are still 'pending'. A paid, fulfilled, refunded, failed
+       or already-cancelled order is invisible to this query, so no completed sale can be undone.
+    2. Cancelling releases a RESERVATION — it deletes rows from inventory_reservations and never
+       writes to product_sizes.qty. Physical stock was never decremented for a pending order, so
+       there is nothing to restore and nothing that can be restored twice.
+
+    The event id is derived from the order and its placement time, so even a concurrent second
+    sweep hits the UNIQUE constraint on payment_events and becomes a no-op rather than a repeat.
+    """
+    now = time.time() if now is None else now
+    cutoff = now - ttl_seconds
+    rows = conn.execute(
+        "SELECT id, order_ref, placed_at FROM orders WHERE status='pending' AND placed_at < ?",
+        (cutoff,)).fetchall()
+    expired = []
+    for r in rows:
+        event_id = f"expire_{r['id']}_{int(r['placed_at'])}"
+        try:
+            res = cancel_order(conn, r["id"], "reservation expired — not paid within "
+                               f"{int(ttl_seconds / 60)} minutes", "cancelled", event_id=event_id)
+            if not res.get("duplicate"):
+                expired.append({"id": r["id"], "ref": r["order_ref"],
+                                "age_minutes": round((now - r["placed_at"]) / 60, 1)})
+        except OrderError:
+            # Raced with something else that moved the order on. Leave it alone.
+            continue
+    return expired
+
+
+def sweep_if_due(conn, force=False):
+    """Throttled wrapper for the request paths. Returns the orders it expired."""
+    global _last_sweep
+    now = time.time()
+    if not force and (now - _last_sweep) < _SWEEP_MIN_INTERVAL:
+        return []
+    _last_sweep = now
+    return expire_pending(conn)
 
 
 def set_status(conn, order_id, new_status, note=""):

@@ -479,6 +479,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 return
             conn = store.connect()
             try:
+                orders.sweep_if_due(conn)
                 rows = conn.execute("SELECT * FROM orders ORDER BY placed_at DESC, id DESC").fetchall()
                 out = []
                 for o in rows:
@@ -733,11 +734,14 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 return
             payload = self._read_json()
             action = str(payload.get("action", ""))
-            try:
-                order_id = int(payload.get("order_id"))
-            except (TypeError, ValueError):
-                self._send_json({"ok": False, "error": "Missing order id."}, status=400)
-                return
+            if action == "expire_now":
+                order_id = 0          # a sweep acts on every eligible order, not one
+            else:
+                try:
+                    order_id = int(payload.get("order_id"))
+                except (TypeError, ValueError):
+                    self._send_json({"ok": False, "error": "Missing order id."}, status=400)
+                    return
             # The admin acting by hand is its own event source; the key keeps a double-click from
             # being processed twice.
             key = str(payload.get("event_id") or f"admin_{action}_{order_id}_{int(time.time())}")
@@ -756,6 +760,9 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                     res = orders.set_status(conn, order_id, "fulfilled", "marked shipped")
                 elif action == "unfulfil":
                     res = orders.set_status(conn, order_id, "paid", "moved back to paid")
+                elif action == "expire_now":
+                    expired = orders.expire_pending(conn)
+                    res = {"expired": len(expired), "orders": expired}
                 else:
                     self._send_json({"ok": False, "error": "Unknown action."}, status=400)
                     return
@@ -854,7 +861,20 @@ class Handler(http.server.SimpleHTTPRequestHandler):
 
             conn = store.connect()
             try:
-                result = orders.create_order(conn, email, requested, ship_to, idempotency_key=key)
+                orders.sweep_if_due(conn)
+                try:
+                    result = orders.create_order(conn, email, requested, ship_to, idempotency_key=key)
+                except orders.OrderError as first:
+                    # Only a STOCK failure is worth retrying, and only after forcing a sweep. The
+                    # throttled sweep above can be skipped for up to a minute, which would let an
+                    # expired hold reject a buyer who could actually have been served. Sweeping
+                    # unconditionally on every order would be wasteful; sweeping at the exact
+                    # moment stock looks short is not.
+                    if not first.detail.get("stock"):
+                        raise
+                    if not orders.expire_pending(conn):
+                        raise                       # nothing was holding stock, so the answer stands
+                    result = orders.create_order(conn, email, requested, ship_to, idempotency_key=key)
             except orders.OrderError as e:
                 self._send_json({"ok": False, "error": e.message, **e.detail}, status=409)
                 return
@@ -913,8 +933,36 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         pass
 
 
+def _start_sweeper():
+    """Release expired reservations even when nothing is happening.
+
+    The request-path sweep covers a busy shop, but a checkout abandoned overnight would otherwise
+    hold its units until someone next visits. A daemon thread makes that self-healing.
+
+    This is a server-side timer touching a local database — not the browser polling the network,
+    which is the thing that must never come back (see "Never poll on a timer" in CLAUDE.md).
+    """
+    def loop():
+        while True:
+            time.sleep(300)
+            try:
+                conn = store.connect()
+                try:
+                    freed = orders.expire_pending(conn)
+                finally:
+                    conn.close()
+                if freed:
+                    store.project_orders()
+            except Exception:
+                pass  # a sweep failure must never take the server down
+    t = threading.Thread(target=loop, name="reservation-sweeper", daemon=True)
+    t.start()
+    return t
+
+
 if __name__ == "__main__":
     port = 8000
+    _start_sweeper()
     httpd = http.server.ThreadingHTTPServer(("0.0.0.0", port), Handler)
     print(f"Serving Paid Off Clothes on http://localhost:{port}")
     httpd.serve_forever()
