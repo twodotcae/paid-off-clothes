@@ -195,146 +195,146 @@
     "Backpack — Black": {
       "category": "Backpacks",
       "prices": {
-        "retail": 70.0,
-        "smallBulk": 70.0,
-        "bulk": 70.0,
-        "largeBulk": 70.0
+        "retail": 70,
+        "smallBulk": 70,
+        "bulk": 70,
+        "largeBulk": 70
       }
     },
     "Backpack — Brown": {
       "category": "Backpacks",
       "prices": {
-        "retail": 70.0,
-        "smallBulk": 70.0,
-        "bulk": 70.0,
-        "largeBulk": 70.0
+        "retail": 70,
+        "smallBulk": 70,
+        "bulk": 70,
+        "largeBulk": 70
       }
     },
     "Backpack — Green": {
       "category": "Backpacks",
       "prices": {
-        "retail": 70.0,
-        "smallBulk": 70.0,
-        "bulk": 70.0,
-        "largeBulk": 70.0
+        "retail": 70,
+        "smallBulk": 70,
+        "bulk": 70,
+        "largeBulk": 70
       }
     },
     "Black Belt — Black Hardware": {
       "brand": "Louis Vuitton",
       "category": "Belts",
       "prices": {
-        "retail": 55.0,
-        "smallBulk": 55.0,
-        "bulk": 55.0,
-        "largeBulk": 55.0
+        "retail": 55,
+        "smallBulk": 55,
+        "bulk": 55,
+        "largeBulk": 55
       }
     },
     "Black Belt — Silver Hardware": {
       "brand": "Louis Vuitton",
       "category": "Belts",
       "prices": {
-        "retail": 55.0,
-        "smallBulk": 55.0,
-        "bulk": 55.0,
-        "largeBulk": 55.0
+        "retail": 55,
+        "smallBulk": 55,
+        "bulk": 55,
+        "largeBulk": 55
       }
     },
     "Black Cross Buckle Belt": {
       "brand": "Chrome Hearts",
       "category": "Belts",
       "prices": {
-        "retail": 45.0,
-        "smallBulk": 45.0,
-        "bulk": 45.0,
-        "largeBulk": 45.0
+        "retail": 45,
+        "smallBulk": 45,
+        "bulk": 45,
+        "largeBulk": 45
       }
     },
     "Black Monogram Belt": {
       "brand": "Louis Vuitton",
       "category": "Belts",
       "prices": {
-        "retail": 50.0,
-        "smallBulk": 50.0,
-        "bulk": 50.0,
-        "largeBulk": 50.0
+        "retail": 50,
+        "smallBulk": 50,
+        "bulk": 50,
+        "largeBulk": 50
       }
     },
     "Embossed Black Belt": {
       "brand": "Louis Vuitton",
       "category": "Belts",
       "prices": {
-        "retail": 50.0,
-        "smallBulk": 50.0,
-        "bulk": 50.0,
-        "largeBulk": 50.0
+        "retail": 50,
+        "smallBulk": 50,
+        "bulk": 50,
+        "largeBulk": 50
       }
     },
     "Multicolor Monogram Belt": {
       "brand": "Louis Vuitton",
       "category": "Belts",
       "prices": {
-        "retail": 60.0,
-        "smallBulk": 60.0,
-        "bulk": 60.0,
-        "largeBulk": 60.0
+        "retail": 60,
+        "smallBulk": 60,
+        "bulk": 60,
+        "largeBulk": 60
       }
     },
     "White Buckle Belt — Style 1": {
       "brand": "Chrome Hearts",
       "category": "Belts",
       "prices": {
-        "retail": 45.0,
-        "smallBulk": 45.0,
-        "bulk": 45.0,
-        "largeBulk": 45.0
+        "retail": 45,
+        "smallBulk": 45,
+        "bulk": 45,
+        "largeBulk": 45
       }
     },
     "White Buckle Belt — Style 3": {
       "brand": "Chrome Hearts",
       "category": "Belts",
       "prices": {
-        "retail": 45.0,
-        "smallBulk": 45.0,
-        "bulk": 45.0,
-        "largeBulk": 45.0
+        "retail": 45,
+        "smallBulk": 45,
+        "bulk": 45,
+        "largeBulk": 45
       }
     },
     "White Monogram Belt": {
       "brand": "Louis Vuitton",
       "category": "Belts",
       "prices": {
-        "retail": 50.0,
-        "smallBulk": 50.0,
-        "bulk": 50.0,
-        "largeBulk": 50.0
+        "retail": 50,
+        "smallBulk": 50,
+        "bulk": 50,
+        "largeBulk": 50
       }
     },
     "White Oval Buckle Belt": {
       "brand": "Chrome Hearts",
       "category": "Belts",
       "prices": {
-        "retail": 45.0,
-        "smallBulk": 45.0,
-        "bulk": 45.0,
-        "largeBulk": 45.0
+        "retail": 45,
+        "smallBulk": 45,
+        "bulk": 45,
+        "largeBulk": 45
       }
     },
     "Black / White Runner": {
       "category": "Shoes",
       "prices": {
-        "retail": 75.0,
-        "smallBulk": 75.0,
-        "bulk": 75.0,
-        "largeBulk": 75.0
+        "retail": 75,
+        "smallBulk": 75,
+        "bulk": 75,
+        "largeBulk": 75
       }
     },
     "Silver / White Runner": {
       "category": "Shoes",
       "prices": {
-        "retail": 75.0,
-        "smallBulk": 75.0,
-        "bulk": 75.0,
-        "largeBulk": 75.0
+        "retail": 75,
+        "smallBulk": 75,
+        "bulk": 75,
+        "largeBulk": 75
       }
     },
     "3D Logo Tee": {
@@ -342,9 +342,9 @@
       "category": "T-Shirts",
       "prices": {
         "retail": 24.99,
-        "smallBulk": 21.0,
-        "bulk": 18.0,
-        "largeBulk": 16.0
+        "smallBulk": 21,
+        "bulk": 18,
+        "largeBulk": 16
       }
     },
     "Graphic Tee — Style 1": {
@@ -352,9 +352,9 @@
       "category": "T-Shirts",
       "prices": {
         "retail": 24.99,
-        "smallBulk": 21.0,
-        "bulk": 18.0,
-        "largeBulk": 16.0
+        "smallBulk": 21,
+        "bulk": 18,
+        "largeBulk": 16
       }
     },
     "Graphic Tee — Style 2": {
@@ -362,9 +362,9 @@
       "category": "T-Shirts",
       "prices": {
         "retail": 24.99,
-        "smallBulk": 21.0,
-        "bulk": 18.0,
-        "largeBulk": 16.0
+        "smallBulk": 21,
+        "bulk": 18,
+        "largeBulk": 16
       }
     },
     "Graphic Tee — Style 3": {
@@ -372,9 +372,9 @@
       "category": "T-Shirts",
       "prices": {
         "retail": 24.99,
-        "smallBulk": 21.0,
-        "bulk": 18.0,
-        "largeBulk": 16.0
+        "smallBulk": 21,
+        "bulk": 18,
+        "largeBulk": 16
       }
     },
     "Logo Tee": {
@@ -382,9 +382,9 @@
       "category": "T-Shirts",
       "prices": {
         "retail": 24.99,
-        "smallBulk": 21.0,
-        "bulk": 18.0,
-        "largeBulk": 16.0
+        "smallBulk": 21,
+        "bulk": 18,
+        "largeBulk": 16
       }
     }
   }

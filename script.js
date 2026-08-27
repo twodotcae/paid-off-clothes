@@ -703,17 +703,20 @@ function trackClick(name) {
   }).catch(() => {});
 }
 
+// Flagged products come first, then the most-clicked fill whatever slots are left.
+//
+// This used to sort by clicks and consult `featured` only to break ties, which meant the flag did
+// nothing the moment any product had a single click: marking a product Featured in the dashboard
+// changed products.json correctly, and the storefront still showed the four most-clicked items.
+// The flag is an instruction from the owner, so it now wins outright; clicks order the products
+// within each group, and a catalog with nothing flagged still ranks purely by clicks as before.
 function computeFeatured(n = 4) {
-  return PRODUCTS.slice()
-    .sort((a, b) => {
-      const byClicks = (clickCounts[b.name] || 0) - (clickCounts[a.name] || 0);
-      if (byClicks !== 0) return byClicks;
-      const order = defaultFeaturedOrder();
-      const da = order.indexOf(a.name);
-      const db = order.indexOf(b.name);
-      return (da === -1 ? 999 : da) - (db === -1 ? 999 : db);
-    })
-    .slice(0, n);
+  const flagged = new Set(defaultFeaturedOrder());
+  const byClicks = (a, b) => (clickCounts[b.name] || 0) - (clickCounts[a.name] || 0);
+  const picked = PRODUCTS.filter((p) => flagged.has(p.name)).sort(byClicks);
+  if (picked.length >= n) return picked.slice(0, n);
+  const rest = PRODUCTS.filter((p) => !flagged.has(p.name)).sort(byClicks);
+  return picked.concat(rest).slice(0, n);
 }
 
 function featuredStatsFor(p) {
