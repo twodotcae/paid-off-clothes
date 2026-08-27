@@ -4,15 +4,16 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Paid Off Clothes — Curated Resale</title>
-<!-- Fonts were @import'ed from the top of styles.css, which serialises the load: the browser
-     had to fetch styles.css, parse it, only then discover the Google CSS, fetch that, parse it,
-     and only then start the .woff2 files — three round trips deep before brand text could
-     paint. Linking here starts the font CSS in parallel with styles.css, and preconnect warms
-     the DNS/TLS handshake to both hosts ahead of time. Same fonts, same display=swap. -->
-<link rel="preconnect" href="https://fonts.googleapis.com" />
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=JetBrains+Mono:wght@400;500&display=swap" />
-<link rel="stylesheet" href="styles.css?v=48" />
+<!-- Fonts are self-hosted in fonts/ — no third-party host on the critical path.
+     They used to come from fonts.googleapis.com, which is render-blocking: on a phone whose
+     Wi-Fi had no route to Google, Safari sat on WebKit's stylesheet timeout before painting.
+     Measured with the font host blackholed, that was 75,023ms to DOMContentLoaded against 31ms
+     without the request. Same two families, same weights, same font-display: swap — see the
+     header of fonts/fonts.css for how the files were obtained and why only latin/latin-ext.
+     fonts.css must load BEFORE styles.css so the faces are declared when the rules using them
+     are parsed. -->
+<link rel="stylesheet" href="fonts/fonts.css?v=1" />
+<link rel="stylesheet" href="styles.css?v=50" />
 </head>
 <body>
 
@@ -447,6 +448,6 @@
 
 
 
-<script src="script.js?v=48"></script>
+<script src="script.js?v=50"></script>
 </body>
 </html>

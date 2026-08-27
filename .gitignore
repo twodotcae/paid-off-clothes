@@ -9,3 +9,17 @@ subscribers.json
 
 # machine-specific dev config (launch.json holds an absolute path)
 .claude/
+
+# ---- secrets: never commit these ----
+# admin_auth.json holds the salted PBKDF2 hash of the admin password. The password itself is never
+# written anywhere, but the hash is still a credential and is per-machine, so it stays untracked.
+admin_auth.json
+admin_token.txt
+*.key
+*.pem
+.env
+.env.*
+secrets.json
+
+# admin-write backups — copies of the catalog, regenerated on every save
+backups/

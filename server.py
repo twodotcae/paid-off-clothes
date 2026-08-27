@@ -1,12 +1,18 @@
 """Serves the site and backs the click tracker, Bid of the Week, My Orders lookup, and email gate with local JSON files."""
+import base64
 import csv
+import hashlib
+import hmac
 import http.server
 import io
 import json
 import os
 import re
+import secrets
+import shutil
 import threading
 import time
+from datetime import datetime
 from urllib.parse import parse_qs, urlsplit
 
 DIR = os.path.dirname(os.path.abspath(__file__))
@@ -14,6 +20,10 @@ CLICKS_FILE = os.path.join(DIR, "clicks.json")
 BIDS_FILE = os.path.join(DIR, "bids.json")
 ORDERS_FILE = os.path.join(DIR, "orders.json")
 SUBSCRIBERS_FILE = os.path.join(DIR, "subscribers.json")
+PRODUCTS_FILE = os.path.join(DIR, "products.json")
+PRICING_FILE = os.path.join(DIR, "pricing.json")
+ADMIN_AUTH_FILE = os.path.join(DIR, "admin_auth.json")
+BACKUP_DIR = os.path.join(DIR, "backups")
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 lock = threading.Lock()
 
@@ -27,7 +37,181 @@ PRIVATE_FILES = {
     "clicks.json",
     "server.py",
     "claude.md",
+    # The admin token. Serving this would hand out write access to the catalog.
+    "admin_token.txt",
+    "admin_auth.json",
 }
+
+
+# Uploads are written into images/ and served straight back, so the extension whitelist is a
+# security control, not a convenience: it is what stops someone with the token dropping a .py or
+# .html file into a directory the static handler serves. Magic bytes are checked too, so renaming
+# a script to .jpg doesn't get it past the gate either.
+UPLOAD_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
+UPLOAD_MAX_BYTES = 12 * 1024 * 1024
+UPLOAD_SIGNATURES = (
+    (b"\xff\xd8\xff", "jpeg"),
+    (b"\x89PNG\r\n\x1a\n", "png"),
+    (b"GIF87a", "gif"),
+    (b"GIF89a", "gif"),
+)
+
+
+def looks_like_image(data):
+    """Reject anything whose first bytes aren't a real image header."""
+    for sig, _ in UPLOAD_SIGNATURES:
+        if data.startswith(sig):
+            return True
+    # WEBP is "RIFF" + 4 size bytes + "WEBP"
+    return data[:4] == b"RIFF" and data[8:12] == b"WEBP"
+
+
+def safe_upload_name(raw):
+    """Strip the filename down to something that can't escape images/ or hide an extension."""
+    base = os.path.basename((raw or "").replace("\\", "/")).strip()
+    stem, ext = os.path.splitext(base)
+    ext = ext.lower()
+    stem = re.sub(r"[^A-Za-z0-9._-]+", "-", stem).strip("-._") or "photo"
+    return stem[:60], ext
+
+
+def unique_image_path(stem, ext):
+    """Never overwrite an existing photo — a product elsewhere may still point at it."""
+    img_dir = os.path.join(DIR, "images")
+    os.makedirs(img_dir, exist_ok=True)
+    name = f"{stem}{ext}"
+    n = 2
+    while os.path.exists(os.path.join(img_dir, name)):
+        name = f"{stem}-{n}{ext}"
+        n += 1
+    return os.path.join(img_dir, name), f"images/{name}"
+
+
+# ---- admin password ---------------------------------------------------------------------
+# The password is never stored, logged, or sent back — only a PBKDF2-HMAC-SHA256 hash of it with
+# a per-install random salt. 600k iterations is the OWASP figure for this algorithm; it makes a
+# login take a few hundred milliseconds, which is invisible to a human and expensive for anyone
+# guessing. Verification happens once at login and mints a session token, so the cost isn't paid
+# on every request.
+PBKDF2_ITERATIONS = 600_000
+PBKDF2_ALGO = "sha256"
+MIN_PASSWORD_LENGTH = 10
+
+# Sessions live in memory only: restarting the server logs everyone out, which is the right
+# default for a dev-grade tool and means there is no second secret sitting on disk.
+SESSIONS = {}
+SESSION_TTL_SECONDS = 12 * 60 * 60
+
+# Crude but effective brute-force brake, keyed by client address.
+FAILED_LOGINS = {}
+LOCKOUT_AFTER = 8
+LOCKOUT_SECONDS = 15 * 60
+
+
+def hash_password(password, salt=None):
+    salt = salt or os.urandom(16)
+    digest = hashlib.pbkdf2_hmac(PBKDF2_ALGO, password.encode("utf-8"), salt, PBKDF2_ITERATIONS)
+    return {
+        "version": 1,
+        "algo": f"pbkdf2_{PBKDF2_ALGO}",
+        "iterations": PBKDF2_ITERATIONS,
+        "salt": base64.b64encode(salt).decode(),
+        "hash": base64.b64encode(digest).decode(),
+        "updated_at": int(time.time()),
+    }
+
+
+def read_auth():
+    if not os.path.exists(ADMIN_AUTH_FILE):
+        return None
+    try:
+        with open(ADMIN_AUTH_FILE) as f:
+            return json.load(f)
+    except (json.JSONDecodeError, OSError):
+        return None
+
+
+def write_auth(record):
+    """0600 before any bytes land, so the hash is never briefly world-readable."""
+    fd = os.open(ADMIN_AUTH_FILE, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as f:
+        json.dump(record, f, indent=2)
+        f.write("\n")
+    os.chmod(ADMIN_AUTH_FILE, 0o600)
+
+
+def verify_password(password, record):
+    if not record or not password:
+        return False
+    try:
+        salt = base64.b64decode(record["salt"])
+        expected = base64.b64decode(record["hash"])
+        iterations = int(record.get("iterations", PBKDF2_ITERATIONS))
+        algo = str(record.get("algo", "pbkdf2_sha256")).replace("pbkdf2_", "")
+    except (KeyError, ValueError, TypeError):
+        return False
+    candidate = hashlib.pbkdf2_hmac(algo, password.encode("utf-8"), salt, iterations)
+    # compare_digest so a near-miss can't be distinguished from a wild miss by timing
+    return hmac.compare_digest(candidate, expected)
+
+
+def password_problem(password):
+    """One place for the rules, so the server and the dashboard can't disagree."""
+    if not isinstance(password, str) or len(password) < MIN_PASSWORD_LENGTH:
+        return f"Password must be at least {MIN_PASSWORD_LENGTH} characters."
+    if password.strip() != password:
+        return "Password can't start or end with a space."
+    return None
+
+
+def new_session():
+    token = secrets.token_urlsafe(32)
+    SESSIONS[token] = time.time() + SESSION_TTL_SECONDS
+    # opportunistic sweep so an abandoned server doesn't accumulate dead tokens
+    for t, exp in list(SESSIONS.items()):
+        if exp < time.time():
+            SESSIONS.pop(t, None)
+    return token
+
+
+def session_valid(token):
+    exp = SESSIONS.get(token)
+    if not exp:
+        return False
+    if exp < time.time():
+        SESSIONS.pop(token, None)
+        return False
+    return True
+
+
+def lockout_remaining(who):
+    entry = FAILED_LOGINS.get(who)
+    if not entry:
+        return 0
+    count, first = entry
+    if count < LOCKOUT_AFTER:
+        return 0
+    remaining = int(first + LOCKOUT_SECONDS - time.time())
+    if remaining <= 0:
+        FAILED_LOGINS.pop(who, None)
+        return 0
+    return remaining
+
+
+def note_failure(who):
+    count, first = FAILED_LOGINS.get(who, (0, time.time()))
+    FAILED_LOGINS[who] = (count + 1, first)
+
+
+def backup_file(path):
+    """Timestamped copy before any admin write, so a bad edit is always one file-copy from undone."""
+    if not os.path.exists(path):
+        return None
+    os.makedirs(BACKUP_DIR, exist_ok=True)
+    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    dest = os.path.join(BACKUP_DIR, f"{os.path.basename(path)}.{stamp}.bak")
+    shutil.copy2(path, dest)
+    return dest
 
 
 def load_json(path, default):
@@ -40,6 +224,74 @@ def load_json(path, default):
 def save_json(path, data):
     with open(path, "w") as f:
         json.dump(data, f)
+
+
+def save_json_pretty(path, data):
+    """products.json and pricing.json are meant to stay readable and diffable by hand."""
+    tmp = path + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(data, f, indent=2, ensure_ascii=False)
+        f.write("\n")
+    os.replace(tmp, path)  # atomic: a crash mid-write can't leave a truncated catalog
+
+
+def validate_catalog(products, pricing):
+    """Reject a malformed save outright rather than writing a catalog the site can't render.
+
+    The dashboard validates too, but it is the only thing standing between a hand-rolled POST and
+    products.json, so the rules live here as well.
+    """
+    errors = []
+    if not isinstance(products, dict) or not isinstance(products.get("products"), list):
+        return ["products must be an object with a 'products' array"]
+    if not isinstance(pricing, dict) or not isinstance(pricing.get("products"), dict):
+        return ["pricing must be an object with a 'products' object"]
+
+    categories = products.get("categories") or []
+    seen_ids, seen_names = set(), set()
+    for i, p in enumerate(products["products"]):
+        where = f"product #{i + 1}"
+        pid, name = p.get("id"), p.get("name")
+        if not pid or not isinstance(pid, str):
+            errors.append(f"{where}: missing id")
+        elif pid in seen_ids:
+            errors.append(f"{where}: duplicate id '{pid}'")
+        else:
+            seen_ids.add(pid)
+
+        if not name or not isinstance(name, str):
+            errors.append(f"{where}: missing name")
+        elif name in seen_names:
+            errors.append(f"{where}: duplicate name '{name}' — the cart and pricing key on name")
+        else:
+            seen_names.add(name)
+
+        if categories and p.get("category") not in categories:
+            errors.append(f"{where} ('{name}'): category '{p.get('category')}' is not in the categories list")
+        if not isinstance(p.get("retailPrice"), (int, float)):
+            errors.append(f"{where} ('{name}'): retailPrice must be a number")
+        bulk = p.get("bulkPrice")
+        if bulk is not None and not isinstance(bulk, (int, float)):
+            errors.append(f"{where} ('{name}'): bulkPrice must be a number or null")
+        if not isinstance(p.get("sizes"), list) or not p["sizes"]:
+            errors.append(f"{where} ('{name}'): needs at least one size")
+        else:
+            for s in p["sizes"]:
+                if not isinstance(s, dict) or not s.get("size"):
+                    errors.append(f"{where} ('{name}'): a size row has no name")
+                elif not isinstance(s.get("qty"), int) or s["qty"] < 0:
+                    errors.append(f"{where} ('{name}'): size '{s.get('size')}' qty must be an integer >= 0")
+        if p.get("status") not in ("available", "sold"):
+            errors.append(f"{where} ('{name}'): status must be 'available' or 'sold'")
+
+    # Every tier price must be a number, and every tier id must exist in that product's ladder.
+    for name, entry in pricing["products"].items():
+        prices = (entry or {}).get("prices", {})
+        for tier_id, value in prices.items():
+            if value is not None and not isinstance(value, (int, float)):
+                errors.append(f"pricing '{name}': tier '{tier_id}' must be a number or null")
+
+    return errors[:25]  # a broken payload can produce hundreds; the first 25 make the point
 
 
 class Handler(http.server.SimpleHTTPRequestHandler):
@@ -65,6 +317,22 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             self.send_header("Cache-Control", "no-store, must-revalidate")
         super().end_headers()
 
+    def _bearer(self):
+        header = self.headers.get("Authorization", "")
+        return header[7:].strip() if header.lower().startswith("bearer ") else ""
+
+    def _authed(self):
+        """True only for a request carrying a live session token.
+
+        Sessions are minted by /api/admin/login after a password check and expire on their own,
+        so the password itself is verified once rather than on every request. Returns 401 itself
+        on failure, so callers just bail.
+        """
+        if session_valid(self._bearer()):
+            return True
+        self._send_json({"ok": False, "error": "Unauthorized"}, status=401)
+        return False
+
     def do_GET(self):
         path = urlsplit(self.path).path
         query = parse_qs(urlsplit(self.path).query)
@@ -76,6 +344,52 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             return
 
         only_unshipped = (query.get("unshipped") or ["0"])[0] == "1"
+
+        # ---- admin: read the catalog and the pricing ladder together ----
+        # Both files come back in one response because the dashboard edits them as one thing:
+        # a product's row and its quantity tiers are the same form.
+        if path == "/api/admin/data":
+            if not self._authed():
+                return
+            with lock:
+                products = load_json(PRODUCTS_FILE, {})
+                pricing = load_json(PRICING_FILE, {})
+            self._send_json({"ok": True, "products": products, "pricing": pricing})
+            return
+
+        # Unauthenticated on purpose: the login screen has to know whether a password exists yet
+        # before anyone can log in. It reveals only that one bit, never the hash or the salt.
+        if path == "/api/admin/status":
+            record = read_auth()
+            self._send_json({
+                "ok": True,
+                "passwordSet": bool(record),
+                "minLength": MIN_PASSWORD_LENGTH,
+                "lockedFor": lockout_remaining(self.client_address[0]),
+            })
+            return
+
+        # Every image on disk, so the dashboard can offer a picker instead of asking the owner to
+        # type a path correctly. Read-only; there is no upload endpoint yet.
+        if path == "/api/admin/images":
+            if not self._authed():
+                return
+            img_dir = os.path.join(DIR, "images")
+            names = []
+            if os.path.isdir(img_dir):
+                names = sorted(
+                    f"images/{n}" for n in os.listdir(img_dir)
+                    if n.lower().endswith((".jpg", ".jpeg", ".png", ".webp", ".gif")) and not n.startswith(".")
+                )
+            self._send_json({"ok": True, "images": names})
+            return
+
+        # Lets the login screen verify a token without pulling the whole catalog.
+        if path == "/api/admin/check":
+            if not self._authed():
+                return
+            self._send_json({"ok": True})
+            return
 
         if path == "/api/stats":
             with lock:
@@ -145,6 +459,141 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         super().do_GET()
 
     def do_POST(self):
+        client = self.client_address[0]
+
+        # ---- admin: set the FIRST password ----
+        # Allowed without auth only while no password exists. Once one is set this is closed
+        # forever, so it can't be used to take over an existing install; changing it afterwards
+        # goes through /api/admin/password, which demands the current one.
+        if self.path == "/api/admin/setup":
+            payload = self._read_json()
+            if read_auth():
+                self._send_json({"ok": False, "error": "A password is already set. Use Change password."}, status=409)
+                return
+            password = payload.get("password") or ""
+            problem = password_problem(password)
+            if problem:
+                self._send_json({"ok": False, "error": problem}, status=400)
+                return
+            with lock:
+                write_auth(hash_password(password))
+            self._send_json({"ok": True, "token": new_session()})
+            return
+
+        # ---- admin: log in ----
+        if self.path == "/api/admin/login":
+            payload = self._read_json()
+            locked = lockout_remaining(client)
+            if locked:
+                self._send_json({"ok": False, "error": f"Too many attempts. Try again in {locked // 60 + 1} minute(s)."}, status=429)
+                return
+            record = read_auth()
+            if not record:
+                self._send_json({"ok": False, "error": "No password set yet."}, status=409)
+                return
+            if not verify_password(payload.get("password") or "", record):
+                note_failure(client)
+                # Deliberately vague: naming which half was wrong helps an attacker, not the owner.
+                self._send_json({"ok": False, "error": "Incorrect password."}, status=401)
+                return
+            FAILED_LOGINS.pop(client, None)
+            self._send_json({"ok": True, "token": new_session()})
+            return
+
+        # ---- admin: change the password ----
+        # Requires BOTH a live session and the current password, so someone who walks up to an
+        # unlocked browser still can't lock the owner out.
+        if self.path == "/api/admin/password":
+            if not self._authed():
+                return
+            payload = self._read_json()
+            record = read_auth()
+            if not verify_password(payload.get("currentPassword") or "", record):
+                note_failure(client)
+                self._send_json({"ok": False, "error": "Current password is incorrect."}, status=401)
+                return
+            new_password = payload.get("newPassword") or ""
+            problem = password_problem(new_password)
+            if problem:
+                self._send_json({"ok": False, "error": problem}, status=400)
+                return
+            if verify_password(new_password, record):
+                self._send_json({"ok": False, "error": "New password must be different from the current one."}, status=400)
+                return
+            with lock:
+                write_auth(hash_password(new_password))
+            # Every other session dies; only the one doing the change survives.
+            keep = self._bearer()
+            for t in list(SESSIONS):
+                if t != keep:
+                    SESSIONS.pop(t, None)
+            self._send_json({"ok": True})
+            return
+
+        if self.path == "/api/admin/logout":
+            SESSIONS.pop(self._bearer(), None)
+            self._send_json({"ok": True})
+            return
+
+        # ---- admin: upload a product photo ----
+        # The browser posts the raw File as the body with ?name=<original filename>, which avoids
+        # parsing multipart/form-data in the stdlib entirely. Read before any auth failure so the
+        # socket isn't left with an unread body.
+        if urlsplit(self.path).path == "/api/admin/upload":
+            length = int(self.headers.get("Content-Length", 0))
+            if length > UPLOAD_MAX_BYTES:
+                self.rfile.read(min(length, UPLOAD_MAX_BYTES))
+                self._send_json({"ok": False, "error": f"File is larger than {UPLOAD_MAX_BYTES // (1024*1024)}MB."}, status=413)
+                return
+            data = self.rfile.read(length) if length else b""
+            if not self._authed():
+                return
+
+            query = parse_qs(urlsplit(self.path).query)
+            stem, ext = safe_upload_name((query.get("name") or [""])[0])
+            if ext not in UPLOAD_EXTS:
+                self._send_json({"ok": False, "error": f"Only {', '.join(sorted(UPLOAD_EXTS))} files are allowed."}, status=400)
+                return
+            if not data:
+                self._send_json({"ok": False, "error": "Empty file."}, status=400)
+                return
+            if not looks_like_image(data):
+                self._send_json({"ok": False, "error": "That file isn't a real image."}, status=400)
+                return
+
+            with lock:
+                abs_path, rel_path = unique_image_path(stem, ext)
+                with open(abs_path, "wb") as f:
+                    f.write(data)
+            self._send_json({"ok": True, "path": rel_path, "bytes": len(data)})
+            return
+
+        # ---- admin: save the catalog and the pricing ladder ----
+        # Both files are written together or not at all. They reference each other by product
+        # name, so saving one without the other is how you get a product priced at zero.
+        if self.path == "/api/admin/save":
+            if not self._authed():
+                return
+            payload = self._read_json()
+            products = payload.get("products")
+            pricing = payload.get("pricing")
+
+            problems = validate_catalog(products, pricing)
+            if problems:
+                self._send_json({"ok": False, "errors": problems}, status=400)
+                return
+
+            with lock:
+                backups = [b for b in (backup_file(PRODUCTS_FILE), backup_file(PRICING_FILE)) if b]
+                save_json_pretty(PRODUCTS_FILE, products)
+                save_json_pretty(PRICING_FILE, pricing)
+            self._send_json({
+                "ok": True,
+                "products": len(products.get("products", [])),
+                "backups": [os.path.basename(b) for b in backups],
+            })
+            return
+
         if self.path == "/api/click":
             payload = self._read_json()
             name = payload.get("name", "") if isinstance(payload, dict) else ""
@@ -245,9 +694,9 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         except json.JSONDecodeError:
             return {}
 
-    def _send_json(self, obj):
+    def _send_json(self, obj, status=200):
         body = json.dumps(obj).encode()
-        self.send_response(200)
+        self.send_response(status)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()

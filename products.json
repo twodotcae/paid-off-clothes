@@ -1,0 +1,708 @@
+{
+  "_README": [
+    "Single source of truth for every product on the site. Edit this file and reload — nothing about",
+    "stock, sizes, photos or copy is hardcoded in script.js any more.",
+    "",
+    "FIELDS (per product):",
+    "  id           stable slug, never reuse or change one — carts, click stats and a future admin",
+    "               dashboard key off it. Renaming a product is fine; changing its id is not.",
+    "  name         display name. Must stay UNIQUE: the cart, click tracking and pricing.json all",
+    "               key on it.",
+    "  brand        designer name shown above every title. Use \"[brand?]\" when unknown — it renders",
+    "               in warning orange so an unlabelled piece can't pass as a finished listing.",
+    "  category     must appear in the `categories` list below.",
+    "  description  one short line, shown on the card and in the modal.",
+    "  image        main photo, repo-relative path.",
+    "  images       additional photos, same form. Empty today; a gallery is not built yet, so",
+    "               anything added here is stored but not yet displayed.",
+    "  retailPrice  single-unit price.",
+    "  bulkPrice    per-unit price at bulkMinQty and above, or null for no bulk discount.",
+    "  bulkMinQty   units at which bulkPrice starts applying.",
+    "  sizes        [{size, qty}] for EVERY size, including qty 0. Zero-qty sizes are kept here so",
+    "               they can be restocked without retyping the size list; the site hides them.",
+    "  status       \"available\" or \"sold\". \"sold\" disables Buy/Add-to-Cart and hides the count.",
+    "               A product whose sizes are all 0 is treated as sold out regardless of status.",
+    "  featured     true puts it in the fallback featured stack. Real visitor clicks still",
+    "               outrank this — see renderFeatured().",
+    "",
+    "PRICING: pricing.json still owns the full quantity ladder and WINS wherever it has an entry.",
+    "That file can express 4 tiers (1/5/10/20 for shirts); retailPrice+bulkPrice here can express",
+    "one break. The two are consistent today. If you add a product here with no pricing.json entry,",
+    "retailPrice/bulkPrice/bulkMinQty are used on their own, so new products price correctly without",
+    "touching that file."
+  ],
+  "schemaVersion": 1,
+  "categories": [
+    "All",
+    "T-Shirts",
+    "Belts",
+    "Shoes",
+    "Backpacks"
+  ],
+  "products": [
+    {
+      "id": "graphic-tee-style-1",
+      "name": "Graphic Tee — Style 1",
+      "brand": "That's An Awful Lot Of Cough Syrup",
+      "category": "T-Shirts",
+      "description": "Heavyweight cotton tee, bold graphic front and back print.",
+      "image": "images/tee-awful-lot-1.jpg",
+      "images": [],
+      "retailPrice": 24.99,
+      "bulkPrice": 21.0,
+      "bulkMinQty": 5,
+      "sizes": [
+        {
+          "size": "S",
+          "qty": 5
+        },
+        {
+          "size": "M",
+          "qty": 5
+        },
+        {
+          "size": "L",
+          "qty": 5
+        },
+        {
+          "size": "XL",
+          "qty": 5
+        },
+        {
+          "size": "XXL",
+          "qty": 0
+        }
+      ],
+      "status": "available",
+      "featured": false
+    },
+    {
+      "id": "graphic-tee-style-2",
+      "name": "Graphic Tee — Style 2",
+      "brand": "That's An Awful Lot Of Cough Syrup",
+      "category": "T-Shirts",
+      "description": "Heavyweight cotton tee, bold graphic front and back print.",
+      "image": "images/tee-awful-lot-2.jpg",
+      "images": [],
+      "retailPrice": 24.99,
+      "bulkPrice": 21.0,
+      "bulkMinQty": 5,
+      "sizes": [
+        {
+          "size": "S",
+          "qty": 5
+        },
+        {
+          "size": "M",
+          "qty": 5
+        },
+        {
+          "size": "L",
+          "qty": 5
+        },
+        {
+          "size": "XL",
+          "qty": 5
+        },
+        {
+          "size": "XXL",
+          "qty": 0
+        }
+      ],
+      "status": "available",
+      "featured": false
+    },
+    {
+      "id": "graphic-tee-style-3",
+      "name": "Graphic Tee — Style 3",
+      "brand": "That's An Awful Lot Of Cough Syrup",
+      "category": "T-Shirts",
+      "description": "Heavyweight cotton tee, bold graphic front and back print, cartoon character detail.",
+      "image": "images/tee-awful-lot-3.jpg",
+      "images": [],
+      "retailPrice": 24.99,
+      "bulkPrice": 21.0,
+      "bulkMinQty": 5,
+      "sizes": [
+        {
+          "size": "S",
+          "qty": 5
+        },
+        {
+          "size": "M",
+          "qty": 5
+        },
+        {
+          "size": "L",
+          "qty": 5
+        },
+        {
+          "size": "XL",
+          "qty": 5
+        },
+        {
+          "size": "XXL",
+          "qty": 0
+        }
+      ],
+      "status": "available",
+      "featured": false
+    },
+    {
+      "id": "3d-logo-tee",
+      "name": "3D Logo Tee",
+      "brand": "Amiri",
+      "category": "T-Shirts",
+      "description": "Oversized fit tee with large 3D-style block lettering across the chest.",
+      "image": "images/tee-amiri-3d-logo.jpg",
+      "images": [],
+      "retailPrice": 24.99,
+      "bulkPrice": 21.0,
+      "bulkMinQty": 5,
+      "sizes": [
+        {
+          "size": "S",
+          "qty": 5
+        },
+        {
+          "size": "M",
+          "qty": 5
+        },
+        {
+          "size": "L",
+          "qty": 5
+        },
+        {
+          "size": "XL",
+          "qty": 4
+        },
+        {
+          "size": "XXL",
+          "qty": 2
+        }
+      ],
+      "status": "available",
+      "featured": true
+    },
+    {
+      "id": "logo-tee",
+      "name": "Logo Tee",
+      "brand": "Amiri",
+      "category": "T-Shirts",
+      "description": "Relaxed fit tee with a clean centered wordmark graphic.",
+      "image": "images/tee-amiri-logo.jpg",
+      "images": [],
+      "retailPrice": 24.99,
+      "bulkPrice": 21.0,
+      "bulkMinQty": 5,
+      "sizes": [
+        {
+          "size": "S",
+          "qty": 4
+        },
+        {
+          "size": "M",
+          "qty": 5
+        },
+        {
+          "size": "L",
+          "qty": 5
+        },
+        {
+          "size": "XL",
+          "qty": 4
+        },
+        {
+          "size": "XXL",
+          "qty": 2
+        }
+      ],
+      "status": "available",
+      "featured": false
+    },
+    {
+      "id": "black-cross-buckle-belt",
+      "name": "Black Cross Buckle Belt",
+      "brand": "Chrome Hearts",
+      "category": "Belts",
+      "description": "Leather belt with an oversized cross-shaped buckle.",
+      "image": "images/belt-ch-black-cross.jpg",
+      "images": [],
+      "retailPrice": 45.0,
+      "bulkPrice": null,
+      "bulkMinQty": 4,
+      "sizes": [
+        {
+          "size": "100cm",
+          "qty": 3
+        },
+        {
+          "size": "105cm",
+          "qty": 0
+        },
+        {
+          "size": "110cm",
+          "qty": 2
+        },
+        {
+          "size": "115cm",
+          "qty": 0
+        },
+        {
+          "size": "120cm",
+          "qty": 0
+        }
+      ],
+      "status": "available",
+      "featured": false
+    },
+    {
+      "id": "white-buckle-belt-style-1",
+      "name": "White Buckle Belt — Style 1",
+      "brand": "Chrome Hearts",
+      "category": "Belts",
+      "description": "Leather belt with a polished buckle.",
+      "image": "images/belt-ch-white-buckle-1.jpg",
+      "images": [],
+      "retailPrice": 45.0,
+      "bulkPrice": null,
+      "bulkMinQty": 4,
+      "sizes": [
+        {
+          "size": "100cm",
+          "qty": 2
+        },
+        {
+          "size": "105cm",
+          "qty": 0
+        },
+        {
+          "size": "110cm",
+          "qty": 2
+        },
+        {
+          "size": "115cm",
+          "qty": 0
+        },
+        {
+          "size": "120cm",
+          "qty": 0
+        }
+      ],
+      "status": "available",
+      "featured": false
+    },
+    {
+      "id": "white-buckle-belt-style-3",
+      "name": "White Buckle Belt — Style 3",
+      "brand": "Chrome Hearts",
+      "category": "Belts",
+      "description": "Leather belt with a polished buckle.",
+      "image": "images/belt-ch-white-buckle-3.jpg",
+      "images": [],
+      "retailPrice": 45.0,
+      "bulkPrice": null,
+      "bulkMinQty": 4,
+      "sizes": [
+        {
+          "size": "100cm",
+          "qty": 6
+        },
+        {
+          "size": "105cm",
+          "qty": 0
+        },
+        {
+          "size": "110cm",
+          "qty": 0
+        },
+        {
+          "size": "115cm",
+          "qty": 0
+        },
+        {
+          "size": "120cm",
+          "qty": 0
+        }
+      ],
+      "status": "available",
+      "featured": false
+    },
+    {
+      "id": "white-oval-buckle-belt",
+      "name": "White Oval Buckle Belt",
+      "brand": "Chrome Hearts",
+      "category": "Belts",
+      "description": "Leather belt with an oval-shaped buckle.",
+      "image": "images/belt-ch-white-oval.jpg",
+      "images": [],
+      "retailPrice": 45.0,
+      "bulkPrice": null,
+      "bulkMinQty": 4,
+      "sizes": [
+        {
+          "size": "100cm",
+          "qty": 3
+        },
+        {
+          "size": "105cm",
+          "qty": 0
+        },
+        {
+          "size": "110cm",
+          "qty": 3
+        },
+        {
+          "size": "115cm",
+          "qty": 0
+        },
+        {
+          "size": "120cm",
+          "qty": 0
+        }
+      ],
+      "status": "available",
+      "featured": false
+    },
+    {
+      "id": "black-belt-black-hardware",
+      "name": "Black Belt — Black Hardware",
+      "brand": "Louis Vuitton",
+      "category": "Belts",
+      "description": "Black leather belt with tonal dark hardware.",
+      "image": "images/belt-lv-black-black-hw.jpg",
+      "images": [],
+      "retailPrice": 55.0,
+      "bulkPrice": null,
+      "bulkMinQty": 4,
+      "sizes": [
+        {
+          "size": "100cm",
+          "qty": 0
+        },
+        {
+          "size": "105cm",
+          "qty": 3
+        },
+        {
+          "size": "110cm",
+          "qty": 3
+        },
+        {
+          "size": "115cm",
+          "qty": 3
+        },
+        {
+          "size": "120cm",
+          "qty": 3
+        }
+      ],
+      "status": "available",
+      "featured": true
+    },
+    {
+      "id": "black-belt-silver-hardware",
+      "name": "Black Belt — Silver Hardware",
+      "brand": "Louis Vuitton",
+      "category": "Belts",
+      "description": "Black leather belt with polished silver hardware.",
+      "image": "images/belt-lv-black-silver-hw.jpg",
+      "images": [],
+      "retailPrice": 55.0,
+      "bulkPrice": null,
+      "bulkMinQty": 4,
+      "sizes": [
+        {
+          "size": "100cm",
+          "qty": 0
+        },
+        {
+          "size": "105cm",
+          "qty": 3
+        },
+        {
+          "size": "110cm",
+          "qty": 3
+        },
+        {
+          "size": "115cm",
+          "qty": 3
+        },
+        {
+          "size": "120cm",
+          "qty": 0
+        }
+      ],
+      "status": "available",
+      "featured": false
+    },
+    {
+      "id": "black-monogram-belt",
+      "name": "Black Monogram Belt",
+      "brand": "Louis Vuitton",
+      "category": "Belts",
+      "description": "Coated canvas belt, all-over monogram print.",
+      "image": "images/belt-lv-black-monogram.jpg",
+      "images": [],
+      "retailPrice": 50.0,
+      "bulkPrice": null,
+      "bulkMinQty": 4,
+      "sizes": [
+        {
+          "size": "100cm",
+          "qty": 0
+        },
+        {
+          "size": "105cm",
+          "qty": 3
+        },
+        {
+          "size": "110cm",
+          "qty": 3
+        },
+        {
+          "size": "115cm",
+          "qty": 3
+        },
+        {
+          "size": "120cm",
+          "qty": 2
+        }
+      ],
+      "status": "available",
+      "featured": false
+    },
+    {
+      "id": "embossed-black-belt",
+      "name": "Embossed Black Belt",
+      "brand": "Louis Vuitton",
+      "category": "Belts",
+      "description": "Debossed leather belt with tonal monogram detailing.",
+      "image": "images/belt-lv-embossed-black.jpg",
+      "images": [],
+      "retailPrice": 50.0,
+      "bulkPrice": null,
+      "bulkMinQty": 4,
+      "sizes": [
+        {
+          "size": "100cm",
+          "qty": 0
+        },
+        {
+          "size": "105cm",
+          "qty": 3
+        },
+        {
+          "size": "110cm",
+          "qty": 3
+        },
+        {
+          "size": "115cm",
+          "qty": 3
+        },
+        {
+          "size": "120cm",
+          "qty": 3
+        }
+      ],
+      "status": "available",
+      "featured": false
+    },
+    {
+      "id": "white-monogram-belt",
+      "name": "White Monogram Belt",
+      "brand": "Louis Vuitton",
+      "category": "Belts",
+      "description": "Coated canvas belt, all-over monogram print.",
+      "image": "images/belt-lv-white-monogram.jpg",
+      "images": [],
+      "retailPrice": 50.0,
+      "bulkPrice": null,
+      "bulkMinQty": 4,
+      "sizes": [
+        {
+          "size": "100cm",
+          "qty": 0
+        },
+        {
+          "size": "105cm",
+          "qty": 4
+        },
+        {
+          "size": "110cm",
+          "qty": 3
+        },
+        {
+          "size": "115cm",
+          "qty": 3
+        },
+        {
+          "size": "120cm",
+          "qty": 2
+        }
+      ],
+      "status": "available",
+      "featured": false
+    },
+    {
+      "id": "multicolor-monogram-belt",
+      "name": "Multicolor Monogram Belt",
+      "brand": "Louis Vuitton",
+      "category": "Belts",
+      "description": "Coated canvas belt, multicolor monogram print.",
+      "image": "images/belt-lv-multicolor.jpg",
+      "images": [],
+      "retailPrice": 60.0,
+      "bulkPrice": null,
+      "bulkMinQty": 4,
+      "sizes": [
+        {
+          "size": "100cm",
+          "qty": 0
+        },
+        {
+          "size": "105cm",
+          "qty": 5
+        },
+        {
+          "size": "110cm",
+          "qty": 0
+        },
+        {
+          "size": "115cm",
+          "qty": 0
+        },
+        {
+          "size": "120cm",
+          "qty": 0
+        }
+      ],
+      "status": "available",
+      "featured": false
+    },
+    {
+      "id": "silver-white-runner",
+      "name": "Silver / White Runner",
+      "brand": "[brand?]",
+      "category": "Shoes",
+      "description": "Chunky low-top sneaker, layered mesh and suede paneling.",
+      "image": "images/shoe-silver-white.jpg",
+      "images": [],
+      "retailPrice": 75.0,
+      "bulkPrice": null,
+      "bulkMinQty": 3,
+      "sizes": [
+        {
+          "size": "EU 42",
+          "qty": 1
+        },
+        {
+          "size": "EU 43",
+          "qty": 1
+        },
+        {
+          "size": "EU 44",
+          "qty": 3
+        },
+        {
+          "size": "EU 45",
+          "qty": 2
+        }
+      ],
+      "status": "available",
+      "featured": true
+    },
+    {
+      "id": "black-white-runner",
+      "name": "Black / White Runner",
+      "brand": "[brand?]",
+      "category": "Shoes",
+      "description": "Chunky low-top sneaker, layered mesh and suede paneling.",
+      "image": "images/shoe-black-white.jpg",
+      "images": [],
+      "retailPrice": 75.0,
+      "bulkPrice": null,
+      "bulkMinQty": 3,
+      "sizes": [
+        {
+          "size": "EU 42",
+          "qty": 1
+        },
+        {
+          "size": "EU 43",
+          "qty": 2
+        },
+        {
+          "size": "EU 44",
+          "qty": 2
+        },
+        {
+          "size": "EU 45",
+          "qty": 2
+        }
+      ],
+      "status": "available",
+      "featured": false
+    },
+    {
+      "id": "backpack-green",
+      "name": "Backpack — Green",
+      "brand": "[brand?]",
+      "category": "Backpacks",
+      "description": "Coated canvas backpack, all-over woven print with leather trim.",
+      "image": "images/backpack-green.jpg",
+      "images": [],
+      "retailPrice": 70.0,
+      "bulkPrice": null,
+      "bulkMinQty": 3,
+      "sizes": [
+        {
+          "size": "One Size",
+          "qty": 3
+        }
+      ],
+      "status": "available",
+      "featured": true
+    },
+    {
+      "id": "backpack-black",
+      "name": "Backpack — Black",
+      "brand": "[brand?]",
+      "category": "Backpacks",
+      "description": "Coated canvas backpack, all-over woven print with leather trim.",
+      "image": "images/backpack-black.jpg",
+      "images": [],
+      "retailPrice": 70.0,
+      "bulkPrice": null,
+      "bulkMinQty": 3,
+      "sizes": [
+        {
+          "size": "One Size",
+          "qty": 5
+        }
+      ],
+      "status": "available",
+      "featured": false
+    },
+    {
+      "id": "backpack-brown",
+      "name": "Backpack — Brown",
+      "brand": "[brand?]",
+      "category": "Backpacks",
+      "description": "Coated canvas backpack, all-over woven print with leather trim.",
+      "image": "images/backpack-brown.jpg",
+      "images": [],
+      "retailPrice": 70.0,
+      "bulkPrice": null,
+      "bulkMinQty": 3,
+      "sizes": [
+        {
+          "size": "One Size",
+          "qty": 5
+        }
+      ],
+      "status": "available",
+      "featured": false
+    }
+  ]
+}

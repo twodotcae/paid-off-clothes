@@ -7,10 +7,13 @@ either check out on-site or DM on Instagram to buy.
 
 ## Stack
 
-Static site, no build step, no dependencies. Four files at the repo root:
+Static site, no build step, no dependencies. At the repo root:
 
 - [index.html](index.html) — full page markup; every dynamic region is an empty container filled by JS
-- [script.js](script.js) — inventory data + all rendering and behavior (~1000 lines, single global scope, no modules)
+- [products.json](products.json) — **the product/inventory data; edit this to manage stock**
+- [pricing.json](pricing.json) — the quantity-discount ladder
+- [script.js](script.js) — all rendering and behavior (single global scope, no modules)
+- `fonts/` — self-hosted woff2 + `fonts.css`; `images/` — product photos
 - [styles.css](styles.css) — all styling, dark theme, CSS custom properties in `:root`
 - [server.py](server.py) — stdlib-only dev server + tiny JSON API
 
@@ -29,19 +32,40 @@ a manual cache-busting query (`styles.css?v=2`, `script.js?v=2`) for deployed ho
 
 ## Inventory
 
-`PRODUCTS` at the top of [script.js](script.js:8) is the source of truth. It's built from two helpers:
+[products.json](products.json) is the **single source of truth**. Nothing about stock lives in
+`script.js` any more — `PRODUCTS` starts empty and is filled by `loadProducts()` at startup.
 
-- `sizedStock(brand, category, name, desc, price, {size: qty}, img)` — **one card per style**, not
-  per size. Zero-qty sizes are dropped and a style with nothing left drops out entirely.
-- `oneSizeStock(brand, category, name, desc, price, qty, img)` — single card, `meta: "One Size"`.
+Each record carries: `id`, `name`, `brand`, `category`, `description`, `image`, `images[]`,
+`retailPrice`, `bulkPrice`, `bulkMinQty`, `sizes[{size, qty}]`, `status`, `featured`. The file's
+own `_README` documents every field; read that before editing.
 
-Each product carries `sizes: [{size, qty}]` (in-stock sizes only) and `stock` (their total, shown as
-"N left" on the card). `sizesOf(p)` lists the size names; the modal renders the per-size breakdown as
-pills ("S ×5"), and the size filter matches a style if *any* of its sizes match.
+`productFromRecord()` turns a record into the card shape the rest of the file expects, so all the
+old conventions still hold. Key rules:
 
-Source of the data is `PO inventory.xlsm` (currently in ~/Downloads, not in the repo). Its sheets —
-Summary / Shirts / Belts / Shoes / Backpacks — carry the real brand names and per-size counts;
-`PRODUCTS` currently reproduces all 275 units exactly. Re-check against that workbook when restocking.
+- **`id` is permanent.** Rename a product freely; never change or reuse an id — a future admin
+  dashboard keys on it.
+- **`name` must stay unique.** The cart, click tracking and `pricing.json` all key on name.
+- **Zero-qty sizes are kept in the file and hidden by the site.** `sizedStock()` used to discard
+  them, which lost the size list the moment something sold out; 26 such rows were recovered in the
+  conversion. `productFromRecord()` filters them for display, and a style whose sizes are all zero
+  drops out of the catalog entirely.
+- **`categories` in that file drives the filter tiles**, replacing the old hardcoded `CATEGORIES`.
+  A category with no products still renders its tile, which is intentional — it is how a new
+  category gets seeded.
+- **`featured: true` sets the fallback order for the featured stack**, replacing the hardcoded
+  `DEFAULT_FEATURED_ORDER`. Real visitor clicks still outrank it.
+- `PRODUCTS` is a `const` array that is **filled, never reassigned** — `renderProducts`,
+  `getBidItem`, `computeFeatured`, `loadCart` and the pricing helpers all close over that binding.
+- `validateProducts()` warns on duplicate ids or names, unknown categories, non-numeric prices, a
+  `bulkPrice` above retail, and empty size lists. **Check the console after editing** — like
+  `validatePricing()`, a bad edit degrades quietly.
+- **`loadProducts()` must be awaited before anything renders**, and before `loadPricing()`, which
+  walks `PRODUCTS` to stash base prices.
+- A `file://` page cannot fetch `products.json`, so the catalog renders empty there and logs an
+  error. The site needs `server.py`.
+
+Source of the original data is `PO inventory.xlsm` (in ~/Downloads, not in the repo). The
+conversion preserved all 20 styles and all 210 live units exactly.
 
 Conventions that other code depends on:
 
@@ -110,7 +134,7 @@ is authentic and that receipts are provided to buyers after purchase.
 | Opening logo reveal | `initIntro` | Full-screen `#intro` at z-index 2000, above the gate's 1000, so it plays before anything is reachable. ~3.3s: the logo spins two full turns on Y while scaling up (2100ms), a viewport-wide shine sweeps across at 950ms, the overlay fades at 2600ms. Behind it sits a city backdrop — two `images/skyline.png` bands tiled `repeat-x` at different scales, opacities and drift speeds for parallax depth, over a blue-lifted night gradient with a horizon glow. Dismissed by the Skip button, a click anywhere, or Esc/Space/Enter. `animationend` unmounts it, with a 4200ms `setTimeout` guard because a backgrounded tab never fires it. Set `INTRO_ONCE_PER_SESSION = true` to play only once per session instead of every load. |
 | Email gate | `initGate` | Full-screen overlay blocking the site until an email is captured; `localStorage["poc_gate_passed"]` |
 | Featured picks stack | `renderFeatured` / `initStack` | Top 4 items ranked by real visitor clicks, falling back to `DEFAULT_FEATURED_ORDER` |
-| Bid of the Week | `renderBidCard` / `refreshBidState` | Auto-rotates weekly via ISO week number — no manual curation; polls `/api/bid` every 6s |
+| Bid of the Week | `renderBidCard` / `refreshBidState` | Auto-rotates weekly via ISO week number — no manual curation. Refreshes on load and on `visibilitychange`, **never on a timer** — see below |
 | Catalog | `renderProducts` / `getFilteredProducts` | Category tiles, search, price range, size chips, in-stock toggle, sort |
 | Footer / vouches | `initVouchFooter` | The site has exactly **one** footer, fixed to the bottom of the viewport, and it *is* the vouch rotator: one buyer quote at a time, swapped every `VOUCH_ROTATE_MS` (4s), with the brand/copyright line beneath. Quotes come verbatim from the Instagram reference post (`VOUCH_POST_URL`) — **never reword one**, since they are other people's words and editing turns a real quote into a fabricated one. Handles are stored **already masked** in `VOUCHES`: masking only at render would still ship the real usernames in the page source, which is not anonymity. The originals are on the public post. Rotation pauses on hover and while the tab is hidden; `body` carries a `padding-bottom` matching the footer height so content never runs underneath it. |
 | Cart | `loadCart` / `saveCart` | `localStorage["poc_cart"]` stores `[{name, size, qty}]`; a *line* is a product + chosen size + quantity, keyed by `lineId` (`name__size`), so two sizes of one style are two lines. `addToCart` tops up an existing line rather than refusing it, returning `"added"` / `"topped-up"` / `"maxed"`. The badge counts units, not lines. `loadCart` drops lines whose style or size has since left `PRODUCTS`. |
@@ -240,6 +264,113 @@ address split are skipped, since they have no label-ready address.
 Never ask for or handle the owner's Pirate Ship credentials — they download the CSV and upload it
 themselves.
 
+## Admin dashboard
+
+[admin.html](admin.html) at `/admin.html` — a standalone page for managing the catalog. It shares
+no CSS or JS with the storefront, so nothing done there can change how a customer sees the site.
+
+**Auth — password, hashed.** The owner sets their own password on first visit; there is no default
+and no seeded credential anywhere in the repo. It is stored only as **PBKDF2-HMAC-SHA256, 600,000
+iterations, 16-byte random salt** in `admin_auth.json` (mode 0600, gitignored, in `PRIVATE_FILES`).
+The plaintext is never written, logged, or returned — it exists only for the moment it is verified.
+
+Login exchanges the password for a **session token**, held in memory server-side with a 12h TTL, so
+the deliberately-slow hash runs once per login rather than on every request. Restarting the server
+signs everyone out, which is the right default here and avoids a second secret on disk. The
+dashboard keeps the *session token* — never the password — in `sessionStorage`.
+
+- `GET  /api/admin/status` — unauthenticated, and deliberately so: the login screen has to know
+  whether a password exists before anyone can log in. Returns only that one bit plus any lockout.
+- `POST /api/admin/setup` — first password. **Closes permanently once one is set**, so it can't be
+  used to take over an existing install.
+- `POST /api/admin/login` — password in, session token out.
+- `POST /api/admin/password` — needs a live session **and** the current password, so someone at an
+  unlocked browser still can't lock the owner out. Signs out every other session on success.
+- `POST /api/admin/logout`.
+
+**Brute force:** 8 wrong attempts per client address locks that address out for 15 minutes, and the
+correct password is refused during the lockout too. `hmac.compare_digest` on the derived key keeps
+a near-miss from being distinguishable by timing. The error is always "Incorrect password." — never
+which half was wrong.
+
+Forgotten password: delete `admin_auth.json` and restart. The dashboard returns to its first-run
+screen. That is also the only reset, by design — there is no recovery path that doesn't involve
+filesystem access to the machine.
+
+**Endpoints** — all admin-only:
+
+- `GET  /api/admin/check` — verify a token without pulling the catalog
+- `GET  /api/admin/data` — `{products, pricing}`, both files in one response
+- `GET  /api/admin/images` — every file in `images/`, for the picker
+- `POST /api/admin/save` — `{products, pricing}`; validates, backs up, then writes both
+- `POST /api/admin/upload?name=<filename>` — raw file bytes as the body, saved into `images/`
+
+**Uploads take the raw File as the request body**, not `multipart/form-data` — the browser can post
+a `File` directly and the stdlib never has to parse a multipart envelope. `?name=` carries the
+original filename, and the response returns the repo-relative path the file was written to.
+
+Three guards, and all of them matter because `images/` is served by the static handler:
+
+- **Extension whitelist** (`.jpg .jpeg .png .webp .gif`) — this is what stops someone with the
+  token dropping a `.py` or `.html` file into a directory the server hands out.
+- **Magic-byte check** — a shell script renamed to `.jpg` is rejected, so the extension can't be
+  the only thing vouching for the content.
+- **12MB cap**, enforced before the body is stored.
+
+**Photos are optimized in the browser before upload**, not on the server. A phone photo is 4032px
+and several MB; the biggest the storefront ever shows one is a lightbox on a retina screen.
+`optimizeImage()` in `admin.html` caps the long edge at `MAX_EDGE` (1600) at `JPEG_QUALITY` (0.85)
+— a 4032x3024 / 1797KB shot lands as 1600x1200 / 184KB, a 90% saving.
+
+It runs client-side for a reason: server-side would mean Pillow (the project has zero dependencies)
+or `sips` (macOS-only, and this repo is edited from a Windows PC too, where it would silently do
+nothing). The browser also gets two things for free that matter for iPhone photos:
+
+- **HEIC decoding.** Safari decodes it natively and the canvas re-encodes to JPEG, so the server
+  never sees a format it can't handle. The file picker accepts `.heic/.heif` for that reason.
+- **EXIF orientation.** A portrait iPhone photo is stored landscape with a "rotate 90" tag.
+  `decodeOriented()` asks for `imageOrientation: "from-image"`, so the pixels are rotated before
+  scaling — without that, browsers whose default is `"none"` produce a sideways product shot.
+
+Rules it follows, each with a test in the browser console history:
+
+- **Aspect ratio is one scale factor applied to both edges**, so it can't drift. A 6000x1000
+  panorama comes out 1600x267.
+- **Never upscales.** A 400x300 image is left at 400x300.
+- **Alpha is never flattened onto black.** PNG/GIF/WebP sources go out as WebP (or PNG), only
+  photos become JPEG.
+- **Animated GIFs pass through untouched** — canvas would keep the first frame and discard the rest.
+- **Anything it can't decode is uploaded unchanged** rather than throwing, leaving the server's
+  extension and magic-byte checks to make the final call.
+- If nothing was resized and the re-encode came out *larger*, the original is kept.
+
+Filenames are reduced to `basename` and stripped to `[A-Za-z0-9._-]`, so `../../etc/evil.png`
+lands as `images/evil.png` rather than escaping the directory. An upload never overwrites: a
+colliding name gets `-2`, `-3` appended, because another product may still point at the old file.
+
+**products.json and pricing.json are written together or not at all.** They reference each other by
+product name; saving one without the other is how a product ends up priced at zero. Every save
+timestamps a copy of both into `backups/` (gitignored) first.
+
+**Secrets can't be committed.** `.gitignore` covers `admin_auth.json`, `*.key`, `*.pem`, `.env*`
+and `secrets.json`, but `.gitignore` is only a default — `git add -f` walks straight past it. The
+real stop is `tools/pre-commit`, which rejects a commit containing any of those paths and also
+catches a `"hash"`/`"salt"` pair pasted into a tracked file. **`.git/hooks` is not version
+controlled, so cloning does not bring the hook with it** — run `sh tools/install-hooks.sh` once on
+each machine, including the Windows PC.
+
+`validate_catalog()` in [server.py](server.py) rejects a bad payload before anything is written —
+duplicate ids or names, unknown categories, non-numeric prices, negative or non-integer quantities,
+empty size lists, bad status values. The dashboard validates too, but the server is the only thing
+between a hand-rolled POST and the catalog, so the rules live in both.
+
+**The quantity ladder is never invented by the dashboard.** Tier inputs are generated from the
+product's real ladder in `pricing.json`, so a shirt shows four boxes (1/5/10/20) and keeps all four
+on save. Renaming a product moves its pricing entry with it; deleting one removes its entry.
+
+Writes go through `save_json_pretty()`, which writes to a temp file and `os.replace`s it — atomic,
+so a crash mid-write can't leave a truncated catalog — and keeps the files indented and diffable.
+
 ## Serving private files
 
 `server.py` uses `SimpleHTTPRequestHandler`, which serves the whole project directory. `PRIVATE_FILES`
@@ -291,6 +422,23 @@ Anything real (payments, an admin view, sending mail) needs a proper backend beh
   the site should explain the subsidy and the receipt guarantee up front; nothing on the page does
   that yet.
 
+## Never poll on a timer
+
+`refreshBidState` used to run on `setInterval(..., 6000)`. On iOS Safari a recurring fetch never
+lets the page-load indicator go idle, so the spinner in the address bar turned **forever** on a
+phone even though the page had fully rendered and `window.load` had fired. It looked like a broken
+site; nothing was broken.
+
+Confirmed by A/B on the LAN — two instrumented copies of this exact build on separate ports, the
+only difference being that one line. The spinner stopped only on the build without it.
+
+The bid figure now refreshes on load and on `visibilitychange`. That covers when a viewer can
+actually see it change, and coming back to the tab was always the moment that mattered.
+
+**Don't reintroduce a timer that touches the network** — not for bids, stock counts, or anything
+else. If live updates ever genuinely matter, the answer is a push (SSE/WebSocket) opened on user
+intent, not a poll, and it needs testing on a real iPhone before it ships.
+
 ## Mobile performance
 
 Everything expensive about the visual treatment is GPU compositing, not JS or image weight — JS
@@ -324,9 +472,17 @@ Two more things that are invisible everywhere and apply to both builds:
 - **`server.py` caches images.** Blanket `no-store` meant a phone re-downloaded ~424KB of unchanged
   photos on every load. Images now send `no-cache` — kept and revalidated, so they come back as
   bodyless 304s — while markup, code and JSON stay `no-store` so edits appear immediately.
-- **Fonts are linked from `index.html`, never `@import`ed.** An `@import` at the top of a stylesheet
-  serialises the load three round trips deep before brand text can paint. Keep the `preconnect`
-  tags next to them.
+- **Fonts are self-hosted in `fonts/` — the site makes zero external requests.** They came from
+  fonts.googleapis.com until a phone on Wi-Fi with no route to Google exposed the cost: that
+  stylesheet is render-blocking, so Safari waited out WebKit's stylesheet timeout before painting.
+  Measured on the LAN with the font host pointed at an unroutable address, **75,023ms to
+  DOMContentLoaded against 31ms** with the request gone. `fonts/fonts.css` holds Google's own
+  `@font-face` blocks with the `url()` rewritten — same weights, same `unicode-range`, same
+  `font-display: swap` — and is linked **before** `styles.css` so the faces are declared when the
+  rules using them parse. Only latin and latin-ext are included; see that file's header for why,
+  and re-run the download rather than hand-editing if the weights change.
+- Never reintroduce a third-party host on the critical path. A storefront demoed off a laptop has
+  to render on a network with no internet at all.
 
 ## Style
 

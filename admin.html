@@ -1,0 +1,914 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Paid Off Clothes — Admin</title>
+<!-- Same self-hosted fonts as the storefront. No external requests here either. -->
+<link rel="stylesheet" href="fonts/fonts.css?v=1" />
+<style>
+/* Deliberately standalone: this page shares no CSS with the storefront, so nothing done here
+   can ever change how a customer sees the site. Tokens mirror styles.css by hand. */
+:root{
+  --black:#0a0a0b; --charcoal:#131315; --g950:#18181b; --g900:#1f1f23; --g800:#2a2a2f;
+  --g700:#3d3d43; --g500:#6f6f78; --g300:#a8a8b0; --g100:#e4e4e7; --white:#f5f5f7;
+  --ok:#4ade80; --warn:#fbbf24; --bad:#f87171; --radius:14px;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--black);color:var(--white);font-family:'Space Grotesk',system-ui,sans-serif}
+button,input,select,textarea{font-family:inherit;font-size:14px}
+.mono{font-family:'JetBrains Mono',ui-monospace,monospace}
+
+header{position:sticky;top:0;z-index:10;background:rgba(10,10,11,.96);border-bottom:1px solid var(--g900);
+  padding:14px 20px;display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+header h1{font-size:16px;margin:0;letter-spacing:.02em}
+header .sp{flex:1}
+.badge{font-family:'JetBrains Mono',monospace;font-size:10px;text-transform:uppercase;letter-spacing:.12em;
+  color:var(--g500);border:1px solid var(--g800);border-radius:999px;padding:4px 9px}
+.btn{border:1px solid var(--g700);background:var(--g950);color:var(--white);border-radius:999px;
+  padding:9px 16px;cursor:pointer;transition:background .15s,border-color .15s}
+.btn:hover{background:var(--g900);border-color:var(--g500)}
+.btn[disabled]{opacity:.45;cursor:not-allowed}
+.btn-primary{background:var(--white);color:#000;border-color:var(--white);font-weight:600}
+.btn-primary:hover{background:var(--g100)}
+.btn-danger{border-color:#5c2b2b;color:var(--bad)}
+.btn-danger:hover{background:#2a1414;border-color:var(--bad)}
+.btn-sm{padding:5px 11px;font-size:12px}
+
+main{padding:20px;max-width:1200px;margin:0 auto}
+.hint{color:var(--g500);font-size:13px;line-height:1.6}
+
+/* login */
+#login{max-width:460px;margin:12vh auto;padding:26px;border:1px solid var(--g900);border-radius:var(--radius);background:var(--charcoal)}
+#login h2{margin:0 0 6px;font-size:20px}
+#login input{width:100%;margin:16px 0 12px;padding:11px 13px;background:var(--g950);
+  border:1px solid var(--g800);border-radius:10px;color:var(--white)}
+#login .err{color:var(--bad);font-size:13px;min-height:18px}
+
+/* list */
+.toolbar{display:flex;gap:10px;align-items:center;margin-bottom:14px;flex-wrap:wrap}
+.toolbar input,.toolbar select{padding:8px 11px;background:var(--g950);border:1px solid var(--g800);
+  border-radius:9px;color:var(--white)}
+table{width:100%;border-collapse:collapse}
+th{ text-align:left;font-family:'JetBrains Mono',monospace;font-size:10px;text-transform:uppercase;
+  letter-spacing:.1em;color:var(--g500);padding:8px 10px;border-bottom:1px solid var(--g800);white-space:nowrap}
+td{padding:10px;border-bottom:1px solid var(--g900);vertical-align:middle}
+tr:hover td{background:rgba(255,255,255,.02)}
+.thumb{width:44px;height:44px;object-fit:cover;border-radius:8px;background:var(--g900);display:block}
+.pname{font-weight:600}
+.pbrand{font-size:12px;color:var(--g500)}
+.pbrand.missing{color:var(--warn)}
+.pill{font-family:'JetBrains Mono',monospace;font-size:10px;border-radius:999px;padding:3px 8px;
+  border:1px solid var(--g800);color:var(--g300);white-space:nowrap}
+.pill.sold{color:var(--bad);border-color:#5c2b2b}
+.pill.ok{color:var(--ok);border-color:#25543a}
+.pill.feat{color:var(--warn);border-color:#5c4a1a}
+.right{text-align:right}
+
+/* editor */
+.overlay{position:fixed;inset:0;background:rgba(0,0,0,.72);z-index:50;display:flex;
+  align-items:flex-start;justify-content:center;padding:24px;overflow:auto}
+.panel{background:var(--charcoal);border:1px solid var(--g800);border-radius:var(--radius);
+  width:100%;max-width:760px;padding:22px}
+.panel h2{margin:0 0 4px;font-size:19px}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:16px}
+.field{display:flex;flex-direction:column;gap:5px}
+.field.full{grid-column:1 / -1}
+label{font-family:'JetBrains Mono',monospace;font-size:10px;text-transform:uppercase;
+  letter-spacing:.1em;color:var(--g500)}
+input[type=text],input[type=number],select,textarea{padding:9px 11px;background:var(--g950);
+  border:1px solid var(--g800);border-radius:9px;color:var(--white);width:100%}
+textarea{resize:vertical;min-height:56px}
+.row{display:flex;gap:8px;align-items:center;margin-bottom:7px}
+.row input[type=text]{flex:1}
+.row input[type=number]{width:92px}
+.sec{margin-top:20px;padding-top:16px;border-top:1px solid var(--g900)}
+.sec h3{margin:0 0 4px;font-size:13px;font-family:'JetBrains Mono',monospace;
+  text-transform:uppercase;letter-spacing:.1em;color:var(--g300);font-weight:400}
+.check{display:flex;align-items:center;gap:9px}
+.check input{width:17px;height:17px;accent-color:var(--white)}
+.check label{font-size:13px;text-transform:none;letter-spacing:0;color:var(--g100);font-family:inherit}
+.actions{display:flex;gap:10px;margin-top:22px;padding-top:16px;border-top:1px solid var(--g900)}
+.actions .sp{flex:1}
+.preview{width:100%;max-height:150px;object-fit:contain;border-radius:9px;background:var(--g900);margin-top:7px}
+.tier-note{font-size:12px;color:var(--warn);margin-top:8px;line-height:1.55}
+.err-box{background:#2a1414;border:1px solid #5c2b2b;color:#fca5a5;border-radius:10px;
+  padding:11px 13px;margin-bottom:14px;font-size:13px;line-height:1.6;white-space:pre-wrap}
+#toast{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);background:var(--g950);
+  border:1px solid var(--g700);border-radius:999px;padding:10px 20px;z-index:99;font-size:13px;
+  opacity:0;pointer-events:none;transition:opacity .2s}
+#toast.show{opacity:1}
+@media(max-width:700px){.grid{grid-template-columns:1fr}.hide-sm{display:none}}
+</style>
+</head>
+<body>
+
+<div id="login">
+  <h2 id="login-title">Admin</h2>
+  <p class="hint" id="login-hint">Checking&hellip;</p>
+  <input type="password" id="pw" placeholder="Password" autocomplete="current-password" />
+  <input type="password" id="pw2" placeholder="Confirm password" autocomplete="new-password" hidden />
+  <div class="err" id="login-err"></div>
+  <button class="btn btn-primary" id="login-btn" style="width:100%">Unlock</button>
+</div>
+
+<div id="app" hidden>
+  <header>
+    <h1>Paid Off Clothes &mdash; Admin</h1>
+    <span class="badge" id="count-badge">0 products</span>
+    <span class="badge" id="dirty-badge" hidden>unsaved changes</span>
+    <span class="sp"></span>
+    <a class="btn btn-sm" href="/" target="_blank" rel="noopener">View storefront</a>
+    <button class="btn btn-sm" id="pw-btn">Change password</button>
+    <button class="btn btn-sm" id="logout-btn">Log out</button>
+    <button class="btn btn-sm" id="add-btn">+ Add product</button>
+    <button class="btn btn-sm btn-primary" id="save-btn" disabled>Save all</button>
+  </header>
+  <main>
+    <div id="errors"></div>
+    <div class="toolbar">
+      <input type="text" id="search" placeholder="Search name or brand…" style="min-width:220px" />
+      <select id="filter-cat"><option value="">All categories</option></select>
+      <select id="filter-status">
+        <option value="">Any status</option>
+        <option value="available">In stock</option>
+        <option value="sold">Sold out</option>
+      </select>
+      <span class="hint" id="list-summary"></span>
+    </div>
+    <table>
+      <thead><tr>
+        <th></th><th>Product</th><th class="hide-sm">Category</th><th class="right">Retail</th>
+        <th class="right hide-sm">Bulk</th><th class="right">Stock</th><th>Status</th><th></th>
+      </tr></thead>
+      <tbody id="rows"></tbody>
+    </table>
+  </main>
+</div>
+
+<div id="toast"></div>
+
+<script>
+// ---------- state ----------
+// The whole catalog is held in memory and written back in one POST. Products and pricing are
+// edited together because they reference each other by product name.
+let TOKEN = "";
+let DOC = null;      // products.json
+let PRICING = null;  // pricing.json
+let IMAGES = [];
+let dirty = false;
+let editing = null;  // index into DOC.products, or -1 for a new product
+
+const $ = (id) => document.getElementById(id);
+const money = (n) => "$" + Number(n || 0).toFixed(2);
+
+function toast(msg) {
+  const t = $("toast"); t.textContent = msg; t.classList.add("show");
+  setTimeout(() => t.classList.remove("show"), 2200);
+}
+function setDirty(v) {
+  dirty = v;
+  $("dirty-badge").hidden = !v;
+  $("save-btn").disabled = !v;
+}
+function api(path, opts) {
+  return fetch(path, Object.assign({ headers: { "Authorization": "Bearer " + TOKEN, "Content-Type": "application/json" } }, opts || {}));
+}
+
+// ---------- login ----------
+// The password never leaves this function: it is POSTed once, exchanged for a session token, and
+// dropped. Nothing stores it, and the session token — not the password — is what sessionStorage
+// keeps, so a stolen browser profile can't yield the password itself.
+let FIRST_RUN = false;
+let MIN_LEN = 10;
+
+async function loadAuthStatus() {
+  const res = await fetch("/api/admin/status");
+  const s = await res.json();
+  FIRST_RUN = !s.passwordSet;
+  MIN_LEN = s.minLength || 10;
+  $("login-title").textContent = FIRST_RUN ? "Choose an admin password" : "Admin";
+  $("login-hint").textContent = FIRST_RUN
+    ? `No password is set yet. Pick one — at least ${MIN_LEN} characters. It is stored only as a salted hash; nobody, including this tool, can read it back.`
+    : "Enter your admin password.";
+  $("pw").placeholder = FIRST_RUN ? "New password" : "Password";
+  $("pw").autocomplete = FIRST_RUN ? "new-password" : "current-password";
+  $("pw2").hidden = !FIRST_RUN;
+  $("login-btn").textContent = FIRST_RUN ? "Set password" : "Unlock";
+  if (s.lockedFor) {
+    $("login-err").textContent = `Locked for ${Math.ceil(s.lockedFor / 60)} more minute(s).`;
+  }
+}
+
+async function submitLogin() {
+  const pw = $("pw").value;
+  $("login-err").textContent = "";
+  if (!pw) { $("login-err").textContent = "Enter a password."; return; }
+
+  if (FIRST_RUN) {
+    if (pw.length < MIN_LEN) { $("login-err").textContent = `At least ${MIN_LEN} characters.`; return; }
+    if (pw !== $("pw2").value) { $("login-err").textContent = "The two passwords don't match."; return; }
+  }
+
+  const url = FIRST_RUN ? "/api/admin/setup" : "/api/admin/login";
+  $("login-btn").disabled = true;
+  const original = $("login-btn").textContent;
+  $("login-btn").textContent = "Checking…";   // PBKDF2 is deliberately slow; say so rather than look frozen
+  try {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ password: pw }),
+    });
+    const out = await res.json();
+    if (!res.ok || !out.ok) { $("login-err").textContent = out.error || "Login failed."; return; }
+    TOKEN = out.token;
+    sessionStorage.setItem("poc_admin_session", TOKEN);
+    $("pw").value = ""; $("pw2").value = "";
+    await boot();
+  } catch (e) {
+    $("login-err").textContent = "Could not reach the server.";
+  } finally {
+    $("login-btn").disabled = false;
+    $("login-btn").textContent = original;
+  }
+}
+
+$("login-btn").addEventListener("click", submitLogin);
+["pw", "pw2"].forEach((id) =>
+  $(id).addEventListener("keydown", (e) => { if (e.key === "Enter") submitLogin(); }));
+
+// ---------- change password ----------
+function openPasswordPanel() {
+  const ov = document.createElement("div");
+  ov.className = "overlay";
+  ov.innerHTML =
+    '<div class="panel" style="max-width:440px">' +
+      '<h2>Change password</h2>' +
+      '<p class="hint">Changing it signs out every other session. This one stays signed in.</p>' +
+      '<div id="pw-errors"></div>' +
+      '<div class="grid" style="grid-template-columns:1fr">' +
+        '<div class="field"><label>Current password</label><input type="password" id="cur-pw" autocomplete="current-password"></div>' +
+        '<div class="field"><label>New password</label><input type="password" id="new-pw" autocomplete="new-password"></div>' +
+        '<div class="field"><label>Confirm new password</label><input type="password" id="new-pw2" autocomplete="new-password"></div>' +
+      '</div>' +
+      '<div class="actions"><span class="sp"></span>' +
+        '<button class="btn" id="pw-cancel">Cancel</button>' +
+        '<button class="btn btn-primary" id="pw-save">Update password</button></div>' +
+    '</div>';
+  document.body.appendChild(ov);
+  const close = () => ov.remove();
+  $("pw-cancel").addEventListener("click", close);
+  ov.addEventListener("click", (e) => { if (e.target === ov) close(); });
+
+  $("pw-save").addEventListener("click", async () => {
+    const cur = $("cur-pw").value, np = $("new-pw").value, np2 = $("new-pw2").value;
+    const fail = (m) => { $("pw-errors").innerHTML = '<div class="err-box">' + m + '</div>'; };
+    $("pw-errors").innerHTML = "";
+    if (!cur || !np) return fail("Fill in both fields.");
+    if (np.length < MIN_LEN) return fail("New password must be at least " + MIN_LEN + " characters.");
+    if (np !== np2) return fail("The new passwords don't match.");
+
+    const btn = $("pw-save"); btn.disabled = true; btn.textContent = "Updating…";
+    try {
+      const res = await api("/api/admin/password", {
+        method: "POST",
+        body: JSON.stringify({ currentPassword: cur, newPassword: np }),
+      });
+      const out = await res.json();
+      if (!res.ok || !out.ok) { fail(out.error || "Could not change the password."); return; }
+      close(); toast("Password updated — other sessions signed out");
+    } catch (e) {
+      fail("Could not reach the server.");
+    } finally { btn.disabled = false; btn.textContent = "Update password"; }
+  });
+}
+
+async function boot() {
+  const res = await api("/api/admin/data");
+  if (!res.ok) throw new Error("Could not load catalog.");
+  const data = await res.json();
+  DOC = data.products; PRICING = data.pricing;
+  if (!Array.isArray(DOC.products)) DOC.products = [];
+  const imgRes = await api("/api/admin/images");
+  IMAGES = imgRes.ok ? (await imgRes.json()).images : [];
+  $("login").hidden = true; $("app").hidden = false;
+  const sel = $("filter-cat");
+  (DOC.categories || []).filter((c) => c !== "All").forEach((c) => {
+    const o = document.createElement("option"); o.value = c; o.textContent = c; sel.appendChild(o);
+  });
+  render();
+}
+
+// ---------- photo optimization ----------
+// Phone photos are 3-6MB and 4000px wide; the largest thing the storefront ever shows one at is a
+// lightbox on a retina screen. Resizing before upload keeps the repo small and the site fast, and
+// it happens in the browser so the project keeps its zero-dependency property and behaves the same
+// on macOS and Windows. (Server-side would have meant Pillow, or sips — which is macOS-only.)
+const MAX_EDGE = 1600;       // long edge, ~2x the biggest on-screen size on a retina display
+const JPEG_QUALITY = 0.85;   // visually lossless for product photography at this scale
+const OPTIMIZE_SKIP_TYPES = ["image/gif"];  // flattening an animated GIF would destroy it
+
+function canEncode(type) {
+  const c = document.createElement("canvas");
+  c.width = c.height = 1;
+  return c.toDataURL(type).startsWith("data:" + type);
+}
+
+// Decode with EXIF orientation APPLIED. This is the iPhone bug: a portrait photo is stored
+// landscape with an "rotate 90" tag, and drawing it to a canvas without honouring that tag gives
+// you a sideways product shot. createImageBitmap's imageOrientation does it properly; the <img>
+// fallback relies on the browser applying EXIF itself, which current Safari and Chrome both do.
+async function decodeOriented(file) {
+  if (typeof createImageBitmap === "function") {
+    try { return await createImageBitmap(file, { imageOrientation: "from-image" }); }
+    catch (e) { /* older Safari lacks the option — fall through */ }
+    try { return await createImageBitmap(file); } catch (e) { /* HEIC on a browser that can't decode it */ }
+  }
+  return await new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => { URL.revokeObjectURL(url); resolve(img); };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("could not decode")); };
+    img.src = url;
+  });
+}
+
+// Halving repeatedly before the final draw. One big drawImage from 4032px to 1600px aliases badly
+// on fine fabric texture and print detail; stepping down keeps it clean.
+function drawScaled(src, sw, sh, dw, dh) {
+  let cw = sw, ch = sh;
+  let canvas = document.createElement("canvas");
+  canvas.width = cw; canvas.height = ch;
+  let ctx = canvas.getContext("2d");
+  ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = "high";
+  ctx.drawImage(src, 0, 0, cw, ch);
+
+  while (cw > dw * 2) {
+    const nw = Math.max(dw, Math.round(cw / 2));
+    const nh = Math.max(dh, Math.round(ch / 2));
+    const next = document.createElement("canvas");
+    next.width = nw; next.height = nh;
+    const nctx = next.getContext("2d");
+    nctx.imageSmoothingEnabled = true; nctx.imageSmoothingQuality = "high";
+    nctx.drawImage(canvas, 0, 0, nw, nh);
+    canvas = next; cw = nw; ch = nh;
+  }
+
+  const out = document.createElement("canvas");
+  out.width = dw; out.height = dh;
+  const octx = out.getContext("2d");
+  octx.imageSmoothingEnabled = true; octx.imageSmoothingQuality = "high";
+  octx.drawImage(canvas, 0, 0, dw, dh);
+  return out;
+}
+
+// Returns {blob, name, note} — or the original file untouched when optimizing wouldn't help.
+async function optimizeImage(file) {
+  const original = { blob: file, name: file.name, note: "uploaded as-is" };
+  if (OPTIMIZE_SKIP_TYPES.includes(file.type)) return original;
+
+  let bmp;
+  try { bmp = await decodeOriented(file); }
+  catch (e) { return original; }   // let the server's own checks decide about it
+
+  const sw = bmp.width, sh = bmp.height;
+  if (!sw || !sh) return original;
+
+  // Preserve aspect ratio exactly: one scale factor, applied to both edges. Never upscale.
+  const scale = Math.min(1, MAX_EDGE / Math.max(sw, sh));
+  const dw = Math.max(1, Math.round(sw * scale));
+  const dh = Math.max(1, Math.round(sh * scale));
+
+  // Alpha survives only in WebP/PNG. Photos go to JPEG; anything that might be transparent goes
+  // to WebP when the browser can encode it.
+  const mightHaveAlpha = /png|webp|gif/i.test(file.type) || /\.(png|webp|gif)$/i.test(file.name);
+  let outType = "image/jpeg", outExt = ".jpg";
+  if (mightHaveAlpha && canEncode("image/webp")) { outType = "image/webp"; outExt = ".webp"; }
+  else if (mightHaveAlpha) { outType = "image/png"; outExt = ".png"; }
+
+  const canvas = drawScaled(bmp, sw, sh, dw, dh);
+  if (bmp.close) bmp.close();
+
+  const blob = await new Promise((res) => canvas.toBlob(res, outType, JPEG_QUALITY));
+  if (!blob) return original;
+
+  // If nothing was resized and the re-encode came out bigger, the original is simply better.
+  if (scale === 1 && blob.size >= file.size) return original;
+
+  const stem = file.name.replace(/\.[^.]+$/, "") || "photo";
+  const note = sw + "x" + sh + " " + Math.round(file.size / 1024) + "KB  ->  " +
+               dw + "x" + dh + " " + Math.round(blob.size / 1024) + "KB";
+  return { blob, name: stem + outExt, note };
+}
+
+// ---------- photo optimisation ----------
+// Done in the browser rather than on the server, for three reasons: the project has no
+// dependencies and Pillow would be the first, macOS `sips` wouldn't run on the Windows machine,
+// and resizing here means a 4MB phone photo crosses the Wi-Fi as ~200KB instead of 4MB.
+//
+// 1600px on the long edge is sized for this storefront: cards render around 400px and the
+// lightbox around 900px, so 1600 still has headroom on a 2x retina screen without shipping a
+// 12-megapixel original to every visitor.
+const IMG_MAX_EDGE = 1600;
+const IMG_QUALITY = 0.82;
+
+function prettyBytes(n) {
+  return n >= 1048576 ? (n / 1048576).toFixed(1) + "MB" : Math.round(n / 1024) + "KB";
+}
+
+// createImageBitmap with imageOrientation:"from-image" is the part that makes iPhone photos come
+// out the right way up. A phone writes the sensor pixels unrotated and records the rotation in an
+// EXIF tag; draw those pixels to a canvas without honouring the tag and every portrait shot lands
+// sideways. It also lets Safari decode HEIC, so an iPhone photo that arrives as .heic still comes
+// back out as a web-safe format.
+async function decodeImage(file) {
+  if (window.createImageBitmap) {
+    try { return await createImageBitmap(file, { imageOrientation: "from-image" }); }
+    catch (e) { /* older Safari rejects the options bag */ }
+    try { return await createImageBitmap(file); } catch (e) { /* fall through to <img> */ }
+  }
+  return await new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => { URL.revokeObjectURL(url); resolve(img); };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("decode failed")); };
+    img.src = url;
+  });
+}
+
+function encodeCanvas(canvas, type, quality) {
+  return new Promise((resolve) => canvas.toBlob(resolve, type, quality));
+}
+
+async function optimizeImage(file) {
+  let src;
+  try {
+    src = await decodeImage(file);
+  } catch (e) {
+    // Nothing could read it — hand the original over and let the server's guards decide.
+    return { blob: file, name: file.name, note: "couldn't read that format, uploaded unchanged" };
+  }
+
+  const sw = src.width || src.naturalWidth;
+  const sh = src.height || src.naturalHeight;
+  // Math.min(1, …) so a small photo is never blown up — upscaling only adds bytes and blur.
+  const scale = Math.min(1, IMG_MAX_EDGE / Math.max(sw, sh));
+  const dw = Math.max(1, Math.round(sw * scale));
+  const dh = Math.max(1, Math.round(sh * scale));
+
+  const canvas = document.createElement("canvas");
+  canvas.width = dw;
+  canvas.height = dh;
+  const ctx = canvas.getContext("2d");
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = "high";
+  ctx.drawImage(src, 0, 0, dw, dh);
+  if (src.close) src.close();
+
+  // A PNG or GIF may carry transparency, and flattening it onto JPEG would paint the cut-out
+  // black. Those keep an alpha-capable format; a photo becomes a photo format.
+  const hasAlpha = /png|gif|webp/i.test(file.type) || /\.(png|gif|webp)$/i.test(file.name);
+
+  // WebP first — smaller than JPEG at the same quality and it keeps alpha. toBlob() silently
+  // falls back to PNG when a type isn't supported, so the result type is checked rather than
+  // assumed.
+  let blob = await encodeCanvas(canvas, "image/webp", IMG_QUALITY);
+  let ext = ".webp";
+  if (!blob || blob.type !== "image/webp") {
+    blob = await encodeCanvas(canvas, hasAlpha ? "image/png" : "image/jpeg", IMG_QUALITY);
+    ext = hasAlpha ? ".png" : ".jpg";
+  }
+  if (!blob) return { blob: file, name: file.name, note: "couldn't re-encode, uploaded unchanged" };
+
+  // Re-encoding an already-small, already-compressed image usually makes it bigger. If we didn't
+  // shrink the pixels and didn't save bytes, the original is the better file.
+  if (scale === 1 && blob.size >= file.size) {
+    return { blob: file, name: file.name, note: "already optimised (" + sw + "\u00d7" + sh + ", " + prettyBytes(file.size) + ")" };
+  }
+
+  const stem = file.name.replace(/\.[^.]+$/, "") || "photo";
+  return {
+    blob,
+    name: stem + ext,
+    note: sw + "\u00d7" + sh + " \u2192 " + dw + "\u00d7" + dh + ", " +
+          prettyBytes(file.size) + " \u2192 " + prettyBytes(blob.size),
+  };
+}
+
+// ---------- photo upload ----------
+// Posts the raw File as the request body with the original filename in the query string, so the
+// server never has to parse multipart/form-data. Returns the repo-relative path it was saved to.
+function pickFile() {
+  return new Promise((resolve) => {
+    const input = document.createElement("input");
+    input.type = "file";
+    // HEIC/HEIF are here because that's what an iPhone camera actually produces. They never reach
+    // the server in that format: optimizeImage() re-encodes to JPEG, which is also what iOS does
+    // on its own when you pick from the Photo Library.
+    input.accept = "image/*,.jpg,.jpeg,.png,.webp,.gif,.heic,.heif";
+    input.addEventListener("change", () => resolve(input.files && input.files[0] ? input.files[0] : null), { once: true });
+    input.click();
+  });
+}
+
+async function uploadPhoto(file, btn) {
+  const label = btn ? btn.textContent : null;
+  if (btn) { btn.disabled = true; btn.textContent = "Optimizing…"; }
+  try {
+    const opt = await optimizeImage(file);
+    if (btn) btn.textContent = "Uploading…";
+    const res = await fetch("/api/admin/upload?name=" + encodeURIComponent(opt.name), {
+      method: "POST",
+      headers: { "Authorization": "Bearer " + TOKEN, "Content-Type": opt.blob.type || "application/octet-stream" },
+      body: opt.blob,
+    });
+    const out = await res.json().catch(() => ({ ok: false, error: "Server returned a non-JSON response." }));
+    if (!res.ok || !out.ok) throw new Error(out.error || "Upload failed.");
+    // New file is on disk now; add it to the picker lists so it can be chosen anywhere.
+    if (!IMAGES.includes(out.path)) { IMAGES.push(out.path); IMAGES.sort(); }
+    toast("Uploaded " + out.path.replace("images/", "") + " · " + opt.note);
+    return out.path;
+  } catch (e) {
+    toast("Upload failed: " + e.message);
+    return null;
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = label; }
+  }
+}
+
+// Rebuild a <select> of image paths, keeping whatever is currently chosen.
+function fillImageSelect(sel, current) {
+  const opts = [""].concat(IMAGES);
+  if (current && !opts.includes(current)) opts.push(current);
+  sel.innerHTML = opts.map((v) => '<option value="' + v + '">' + (v || "— none —") + '</option>').join("");
+  sel.value = current || "";
+}
+
+// ---------- pricing helpers ----------
+// The ladder a product is priced on. pricing.json owns this; the dashboard never invents tiers,
+// so the existing 10+ and 20+ breaks survive every edit.
+function ladderFor(p) {
+  const entry = PRICING.products[p.name];
+  if (entry && Array.isArray(entry.tiers) && entry.tiers.length) return entry.tiers;
+  const cat = (PRICING.categories || {})[p.category];
+  if (cat && Array.isArray(cat.tiers) && cat.tiers.length) return cat.tiers;
+  return PRICING.defaultTiers || [{ id: "retail", label: "Single", minQty: 1 }];
+}
+function pricesFor(p) {
+  return ((PRICING.products[p.name] || {}).prices) || {};
+}
+// Lowest per-unit price anywhere on the ladder, for the list's "Bulk" column. Only counts a tier
+// that is genuinely BELOW retail: every belt/shoe/backpack tier currently sits at the retail
+// price, and reporting "$45.00 @ 4+" there would advertise a discount that doesn't exist.
+function bestBulk(p) {
+  const prices = pricesFor(p), ladder = ladderFor(p);
+  const retail = typeof prices.retail === "number" ? prices.retail : p.retailPrice;
+  let best = null;
+  ladder.forEach((t) => {
+    if (t.minQty <= 1) return;
+    const v = prices[t.id];
+    if (typeof v === "number" && v < retail && (best === null || v < best.price)) {
+      best = { price: v, minQty: t.minQty };
+    }
+  });
+  return best;
+}
+function unitsOf(p) { return (p.sizes || []).reduce((n, s) => n + (Number(s.qty) || 0), 0); }
+
+// ---------- list ----------
+function render() {
+  const q = $("search").value.trim().toLowerCase();
+  const fc = $("filter-cat").value, fs = $("filter-status").value;
+  const rows = $("rows"); rows.innerHTML = "";
+  let shown = 0;
+
+  DOC.products.forEach((p, i) => {
+    if (fc && p.category !== fc) return;
+    if (fs && p.status !== fs) return;
+    if (q && !((p.name + " " + (p.brand || "")).toLowerCase().includes(q))) return;
+    shown++;
+    const units = unitsOf(p);
+    const bulk = bestBulk(p);
+    const tr = document.createElement("tr");
+    tr.innerHTML =
+      '<td>' + (p.image ? '<img class="thumb" src="' + p.image + '" alt="">' : '<span class="thumb"></span>') + '</td>' +
+      '<td><div class="pname"></div><div class="pbrand' + (p.brand === "[brand?]" ? " missing" : "") + '"></div></td>' +
+      '<td class="hide-sm"><span class="pill"></span></td>' +
+      '<td class="right mono">' + money(p.retailPrice) + '</td>' +
+      '<td class="right mono hide-sm">' + (bulk ? money(bulk.price) + " @ " + bulk.minQty + "+" : "&mdash;") + '</td>' +
+      '<td class="right mono">' + units + '</td>' +
+      '<td><span class="pill ' + (p.status === "sold" || units === 0 ? "sold" : "ok") + '">' +
+        (p.status === "sold" ? "sold out" : units === 0 ? "no stock" : "in stock") + '</span>' +
+        (p.featured ? ' <span class="pill feat">featured</span>' : '') + '</td>' +
+      '<td class="right"><button class="btn btn-sm" data-edit="' + i + '">Edit</button></td>';
+    // textContent for owner-supplied strings so a stray < in a product name can't break the row
+    tr.querySelector(".pname").textContent = p.name;
+    tr.querySelector(".pbrand").textContent = p.brand || "";
+    tr.querySelector("td.hide-sm .pill").textContent = p.category;
+    rows.appendChild(tr);
+  });
+
+  $("count-badge").textContent = DOC.products.length + " products";
+  $("list-summary").textContent = shown + " shown · " +
+    DOC.products.reduce((n, p) => n + unitsOf(p), 0) + " units total";
+  rows.querySelectorAll("[data-edit]").forEach((b) =>
+    b.addEventListener("click", () => openEditor(Number(b.dataset.edit))));
+}
+["search", "filter-cat", "filter-status"].forEach((id) => $(id).addEventListener("input", render));
+
+// ---------- editor ----------
+function blankProduct() {
+  const cats = (DOC.categories || []).filter((c) => c !== "All");
+  return {
+    id: "", name: "", brand: "", category: cats[0] || "", description: "",
+    image: "", images: [], retailPrice: 0, bulkPrice: null, bulkMinQty: null,
+    sizes: [{ size: "One Size", qty: 1 }], status: "available", featured: false,
+  };
+}
+function slugify(s) {
+  return String(s).toLowerCase().replace(/—/g, "-").replace(/\//g, " ")
+    .replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+}
+
+function openEditor(index) {
+  editing = index;
+  const p = index === -1 ? blankProduct() : JSON.parse(JSON.stringify(DOC.products[index]));
+  const originalName = index === -1 ? null : DOC.products[index].name;
+  const cats = (DOC.categories || []).filter((c) => c !== "All");
+
+  const ov = document.createElement("div");
+  ov.className = "overlay"; ov.id = "editor";
+  ov.innerHTML =
+    '<div class="panel">' +
+      '<h2>' + (index === -1 ? "Add product" : "Edit product") + '</h2>' +
+      '<p class="hint" id="ed-id"></p>' +
+      '<div id="ed-errors"></div>' +
+      '<div class="grid">' +
+        '<div class="field"><label>Name</label><input type="text" id="f-name"></div>' +
+        '<div class="field"><label>Brand</label><input type="text" id="f-brand" placeholder="[brand?] if unknown"></div>' +
+        '<div class="field"><label>Category</label><select id="f-cat">' +
+          cats.map((c) => '<option value="' + c + '">' + c + '</option>').join("") + '</select></div>' +
+        '<div class="field"><label>Retail price</label><input type="number" step="0.01" min="0" id="f-retail"></div>' +
+        '<div class="field full"><label>Short description</label><textarea id="f-desc"></textarea></div>' +
+      '</div>' +
+
+      '<div class="sec"><h3>Main image</h3>' +
+        '<div class="row"><select id="f-image" style="flex:1"></select>' +
+          '<button class="btn btn-sm" id="upload-main">Upload photo</button></div>' +
+        '<img class="preview" id="f-preview" alt="" hidden></div>' +
+
+      '<div class="sec"><h3>Additional images</h3>' +
+        '<div id="f-images"></div>' +
+        '<button class="btn btn-sm" id="upload-extra">Upload photo</button> ' +
+        '<button class="btn btn-sm" id="add-image">+ Pick existing</button>' +
+        '<p class="hint" style="margin-top:8px">Stored now; the storefront modal shows only the main image until a gallery is built.</p></div>' +
+
+      '<div class="sec"><h3>Sizes &amp; stock</h3>' +
+        '<div id="f-sizes"></div>' +
+        '<button class="btn btn-sm" id="add-size">+ Add size</button>' +
+        '<p class="hint" style="margin-top:8px">Keep a size at qty 0 rather than deleting it &mdash; the storefront hides it and you can restock without retyping.</p></div>' +
+
+      '<div class="sec"><h3>Quantity pricing</h3>' +
+        '<div id="f-tiers"></div>' +
+        '<p class="tier-note" id="tier-note"></p></div>' +
+
+      '<div class="sec"><h3>Status</h3>' +
+        '<div class="check" style="margin-bottom:9px"><input type="checkbox" id="f-sold"><label for="f-sold">Sold out (disables Buy and Add to Cart)</label></div>' +
+        '<div class="check"><input type="checkbox" id="f-featured"><label for="f-featured">Featured (fallback order for the featured stack)</label></div></div>' +
+
+      '<div class="actions">' +
+        (index === -1 ? "" : '<button class="btn btn-danger" id="ed-delete">Delete</button>') +
+        '<span class="sp"></span>' +
+        '<button class="btn" id="ed-cancel">Cancel</button>' +
+        '<button class="btn btn-primary" id="ed-apply">' + (index === -1 ? "Add" : "Apply") + '</button>' +
+      '</div>' +
+    '</div>';
+  document.body.appendChild(ov);
+
+  // populate
+  $("f-name").value = p.name; $("f-brand").value = p.brand || "";
+  $("f-cat").value = p.category; $("f-retail").value = p.retailPrice;
+  $("f-desc").value = p.description || "";
+  $("f-sold").checked = p.status === "sold"; $("f-featured").checked = !!p.featured;
+  $("ed-id").textContent = index === -1 ? "id is generated from the name when you add it"
+                                        : "id: " + p.id + " (permanent — never changes)";
+
+  // main image picker: every file in images/, plus whatever the record already points at
+  const imgSel = $("f-image");
+  fillImageSelect(imgSel, p.image);
+  const syncPreview = () => {
+    const el = $("f-preview");
+    // Cache-bust the preview: a freshly uploaded file can share a name pattern with one the
+    // browser already has, and a stale thumbnail here is genuinely confusing.
+    if (imgSel.value) { el.src = imgSel.value + "?t=" + Date.now(); el.hidden = false; } else { el.hidden = true; }
+  };
+  imgSel.addEventListener("change", syncPreview); syncPreview();
+
+  $("upload-main").addEventListener("click", async (e) => {
+    const file = await pickFile();
+    if (!file) return;
+    const path = await uploadPhoto(file, e.currentTarget);
+    if (!path) return;
+    fillImageSelect(imgSel, path);   // rebuilt so the new file appears, and selected
+    syncPreview();
+    renderImages();                  // the extra-image pickers should offer it too
+  });
+
+  function renderImages() {
+    const wrap = $("f-images"); wrap.innerHTML = "";
+    p.images.forEach((src, i) => {
+      const row = document.createElement("div"); row.className = "row";
+      const sel = document.createElement("select"); sel.style.flex = "1";
+      fillImageSelect(sel, src);
+      sel.addEventListener("change", () => { p.images[i] = sel.value; });
+      const del = document.createElement("button");
+      del.className = "btn btn-sm btn-danger"; del.textContent = "Remove";
+      del.addEventListener("click", () => { p.images.splice(i, 1); renderImages(); });
+      row.appendChild(sel); row.appendChild(del); wrap.appendChild(row);
+    });
+  }
+  renderImages();
+  $("add-image").addEventListener("click", () => { p.images.push(""); renderImages(); });
+  $("upload-extra").addEventListener("click", async (e) => {
+    const file = await pickFile();
+    if (!file) return;
+    const path = await uploadPhoto(file, e.currentTarget);
+    if (!path) return;
+    p.images.push(path);
+    renderImages();
+    fillImageSelect(imgSel, imgSel.value);  // keep the main picker's list in step
+  });
+
+  function renderSizes() {
+    const wrap = $("f-sizes"); wrap.innerHTML = "";
+    p.sizes.forEach((s, i) => {
+      const row = document.createElement("div"); row.className = "row";
+      const name = document.createElement("input");
+      name.type = "text"; name.value = s.size; name.placeholder = "Size (S, 110cm, EU 43, One Size)";
+      name.addEventListener("input", () => { p.sizes[i].size = name.value; });
+      const qty = document.createElement("input");
+      qty.type = "number"; qty.min = "0"; qty.step = "1"; qty.value = s.qty;
+      qty.addEventListener("input", () => { p.sizes[i].qty = Math.max(0, parseInt(qty.value || "0", 10)); });
+      const del = document.createElement("button");
+      del.className = "btn btn-sm btn-danger"; del.textContent = "Remove";
+      del.addEventListener("click", () => { p.sizes.splice(i, 1); renderSizes(); });
+      row.appendChild(name); row.appendChild(qty); row.appendChild(del); wrap.appendChild(row);
+    });
+  }
+  renderSizes();
+  $("add-size").addEventListener("click", () => { p.sizes.push({ size: "", qty: 0 }); renderSizes(); });
+
+  // Quantity tiers. Inputs are generated from the product's real ladder, so a category with a
+  // 1/5/10/20 ladder shows four boxes and keeps all four on save.
+  let tierPrices = Object.assign({}, pricesFor({ name: originalName || p.name, category: p.category }));
+  function renderTiers() {
+    const ladder = ladderFor({ name: originalName || p.name, category: $("f-cat").value });
+    const wrap = $("f-tiers"); wrap.innerHTML = "";
+    ladder.forEach((t) => {
+      const row = document.createElement("div"); row.className = "row";
+      const lab = document.createElement("span");
+      lab.className = "mono"; lab.style.cssText = "min-width:150px;color:var(--g300);font-size:12px";
+      lab.textContent = (t.label || t.id) + " · " + t.minQty + "+";
+      const inp = document.createElement("input");
+      inp.type = "number"; inp.step = "0.01"; inp.min = "0"; inp.style.width = "120px";
+      inp.value = typeof tierPrices[t.id] === "number" ? tierPrices[t.id] : "";
+      inp.placeholder = "per unit";
+      inp.addEventListener("input", () => {
+        const v = inp.value.trim();
+        if (v === "") delete tierPrices[t.id]; else tierPrices[t.id] = parseFloat(v);
+      });
+      row.appendChild(lab); row.appendChild(inp); wrap.appendChild(row);
+    });
+    $("tier-note").textContent =
+      "Prices are PER UNIT and pooled across the whole category — 5 shirts at $21 is $105. " +
+      "Leave a tier blank to fall back to the tier below it. These are your existing tiers; " +
+      "editing here preserves every break, including 10+ and 20+.";
+  }
+  renderTiers();
+  $("f-cat").addEventListener("change", renderTiers);
+
+  // ---- apply / delete / cancel ----
+  $("ed-cancel").addEventListener("click", () => ov.remove());
+  ov.addEventListener("click", (e) => { if (e.target === ov) ov.remove(); });
+
+  if (index !== -1) {
+    $("ed-delete").addEventListener("click", () => {
+      if (!confirm('Delete "' + p.name + '"? This removes it from the catalog and its pricing entry. Nothing is written until you press Save all.')) return;
+      delete PRICING.products[DOC.products[index].name];
+      DOC.products.splice(index, 1);
+      ov.remove(); setDirty(true); render(); toast("Deleted — press Save all to write it");
+    });
+  }
+
+  $("ed-apply").addEventListener("click", () => {
+    const errs = [];
+    const name = $("f-name").value.trim();
+    const retail = parseFloat($("f-retail").value);
+    if (!name) errs.push("Name is required.");
+    if (!(retail >= 0)) errs.push("Retail price must be a number.");
+    p.sizes = p.sizes.filter((s) => String(s.size).trim() !== "");
+    if (!p.sizes.length) errs.push("At least one size is required.");
+    const clash = DOC.products.some((o, i) => i !== index && o.name === name);
+    if (clash) errs.push("Another product already uses that name. Names must be unique.");
+    if (errs.length) { $("ed-errors").innerHTML = '<div class="err-box">' + errs.join("\n") + '</div>'; return; }
+
+    p.name = name;
+    p.brand = $("f-brand").value.trim() || "[brand?]";
+    p.category = $("f-cat").value;
+    p.retailPrice = retail;
+    p.description = $("f-desc").value.trim();
+    p.image = $("f-image").value || null;
+    p.images = p.images.filter(Boolean);
+    p.status = $("f-sold").checked ? "sold" : "available";
+    p.featured = $("f-featured").checked;
+
+    // Keep the simple bulk pair in step with the ladder: first tier that actually discounts.
+    const ladder = ladderFor(p);
+    let bp = null, bm = null;
+    ladder.forEach((t) => {
+      if (t.minQty <= 1 || bp !== null) return;
+      if (bm === null) bm = t.minQty;
+      const v = tierPrices[t.id];
+      if (typeof v === "number" && v < retail) { bp = v; bm = t.minQty; }
+    });
+    p.bulkPrice = bp; p.bulkMinQty = bm;
+
+    if (index === -1) {
+      p.id = slugify(name);
+      let n = 2, base = p.id;
+      while (DOC.products.some((o) => o.id === p.id)) p.id = base + "-" + n++;
+      DOC.products.push(p);
+    } else {
+      // A rename has to carry the pricing entry with it — pricing.json is keyed by name.
+      if (originalName && originalName !== name && PRICING.products[originalName]) {
+        PRICING.products[name] = PRICING.products[originalName];
+        delete PRICING.products[originalName];
+      }
+      DOC.products[index] = p;
+    }
+
+    const entry = PRICING.products[name] || { category: p.category, prices: {} };
+    entry.category = p.category;
+    entry.prices = tierPrices;
+    // A product with no tier prices at all would price at zero; seed the retail tier.
+    if (typeof entry.prices.retail !== "number") entry.prices.retail = retail;
+    PRICING.products[name] = entry;
+
+    ov.remove(); setDirty(true); render();
+    toast(index === -1 ? "Added — press Save all to write it" : "Applied — press Save all to write it");
+  });
+}
+
+$("add-btn").addEventListener("click", () => openEditor(-1));
+
+// ---------- save ----------
+$("save-btn").addEventListener("click", async () => {
+  $("save-btn").disabled = true; $("errors").innerHTML = "";
+  try {
+    const res = await api("/api/admin/save", {
+      method: "POST",
+      body: JSON.stringify({ products: DOC, pricing: PRICING }),
+    });
+    const out = await res.json();
+    if (!res.ok || !out.ok) {
+      $("errors").innerHTML = '<div class="err-box">Save rejected:\n' +
+        (out.errors || [out.error || "unknown error"]).join("\n") + '</div>';
+      $("save-btn").disabled = false;
+      return;
+    }
+    setDirty(false);
+    toast("Saved " + out.products + " products" + (out.backups && out.backups.length ? " · backed up" : ""));
+  } catch (e) {
+    $("errors").innerHTML = '<div class="err-box">Could not reach the server: ' + e.message + '</div>';
+    $("save-btn").disabled = false;
+  }
+});
+
+window.addEventListener("beforeunload", (e) => { if (dirty) { e.preventDefault(); e.returnValue = ""; } });
+
+$("pw-btn").addEventListener("click", openPasswordPanel);
+$("logout-btn").addEventListener("click", async () => {
+  if (dirty && !confirm("You have unsaved changes. Log out anyway?")) return;
+  try { await api("/api/admin/logout", { method: "POST" }); } catch (e) { /* going anyway */ }
+  sessionStorage.removeItem("poc_admin_session");
+  location.reload();
+});
+
+// Resume an existing session if the server still honours it; otherwise show the right screen.
+(async () => {
+  const saved = sessionStorage.getItem("poc_admin_session");
+  if (saved) {
+    TOKEN = saved;
+    try {
+      const res = await api("/api/admin/check");
+      if (res.ok) { await boot(); return; }
+    } catch (e) { /* fall through to the login screen */ }
+    sessionStorage.removeItem("poc_admin_session");
+    TOKEN = "";
+  }
+  await loadAuthStatus();
+})();
+</script>
+</body>
+</html>

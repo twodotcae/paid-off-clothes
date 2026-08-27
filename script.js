@@ -1,73 +1,91 @@
-// ---------- EDIT THIS: your stock ----------
-const CATEGORIES = ["All", "T-Shirts", "Belts", "Shoes", "Backpacks"];
+// ---------- product data ----------
+// Stock lives in products.json, not here. That file is the single source of truth for names,
+// brands, photos, sizes, per-size quantities, status and featured flags — the shape an admin
+// dashboard will read and write. Nothing about inventory is hardcoded in this file any more.
+//
+// PRODUCTS stays a `const` array that gets FILLED rather than reassigned: renderProducts,
+// getBidItem, computeFeatured, loadCart and the pricing helpers all close over this binding, so
+// replacing it would leave half the site pointing at a stale array.
 
-// Placeholder for a brand we haven't filled in yet. Renders visibly on the card so an
-// unlabelled piece can never quietly ship looking like a finished listing.
 const NEEDS_BRAND = "[brand?]";
 
-// Real stock imported from "PO inventory.xlsm" (Downloads). Brands and per-size quantities
-// come straight from that workbook — quantities were cross-checked against every sheet total.
-// Photos are the 21 images embedded in that workbook, extracted from xl/media and matched to each
-// style by its drawing anchor row (so every shot is provably the one sitting in that sheet row).
-// Prices are still placeholders.
-const PRODUCTS = [
-  // Shirts sheet — 166 units across 6 styles.
-  ...sizedStock("That's An Awful Lot Of Cough Syrup", "T-Shirts", "Graphic Tee — Style 1", "Heavyweight cotton tee, bold graphic front and back print.", 32, { S: 5, M: 5, L: 5, XL: 5, XXL: 0 }, "images/tee-awful-lot-1.jpg"),
-  ...sizedStock("That's An Awful Lot Of Cough Syrup", "T-Shirts", "Graphic Tee — Style 2", "Heavyweight cotton tee, bold graphic front and back print.", 32, { S: 5, M: 5, L: 5, XL: 5, XXL: 0 }, "images/tee-awful-lot-2.jpg"),
-  ...sizedStock("That's An Awful Lot Of Cough Syrup", "T-Shirts", "Graphic Tee — Style 3", "Heavyweight cotton tee, bold graphic front and back print, cartoon character detail.", 32, { S: 5, M: 5, L: 5, XL: 5, XXL: 0 }, "images/tee-awful-lot-3.jpg"),
-  ...sizedStock("Amiri", "T-Shirts", "3D Logo Tee", "Oversized fit tee with large 3D-style block lettering across the chest.", 38, { S: 5, M: 5, L: 5, XL: 4, XXL: 2 }, "images/tee-amiri-3d-logo.jpg"),
-  ...sizedStock("Amiri", "T-Shirts", "Logo Tee", "Relaxed fit tee with a clean centered wordmark graphic.", 34, { S: 4, M: 5, L: 5, XL: 4, XXL: 2 }, "images/tee-amiri-logo.jpg"),
+const PRODUCTS = [];
+let CATEGORIES = ["All"];
+let PRODUCTS_LOADED = false;
 
-  // Belts sheet — 82 units across 10 live styles (row 3 is blank in the workbook).
-  ...sizedStock("Chrome Hearts", "Belts", "Black Cross Buckle Belt", "Leather belt with an oversized cross-shaped buckle.", 45, { "100cm": 3, "105cm": 0, "110cm": 2, "115cm": 0, "120cm": 0 }, "images/belt-ch-black-cross.jpg"),
-  ...sizedStock("Chrome Hearts", "Belts", "White Buckle Belt — Style 1", "Leather belt with a polished buckle.", 45, { "100cm": 2, "105cm": 0, "110cm": 2, "115cm": 0, "120cm": 0 }, "images/belt-ch-white-buckle-1.jpg"),
-  ...sizedStock("Chrome Hearts", "Belts", "White Buckle Belt — Style 3", "Leather belt with a polished buckle.", 45, { "100cm": 6, "105cm": 0, "110cm": 0, "115cm": 0, "120cm": 0 }, "images/belt-ch-white-buckle-3.jpg"),
-  ...sizedStock("Chrome Hearts", "Belts", "White Oval Buckle Belt", "Leather belt with an oval-shaped buckle.", 45, { "100cm": 3, "105cm": 0, "110cm": 3, "115cm": 0, "120cm": 0 }, "images/belt-ch-white-oval.jpg"),
-  ...sizedStock("Louis Vuitton", "Belts", "Black Belt — Black Hardware", "Black leather belt with tonal dark hardware.", 55, { "100cm": 0, "105cm": 3, "110cm": 3, "115cm": 3, "120cm": 3 }, "images/belt-lv-black-black-hw.jpg"),
-  ...sizedStock("Louis Vuitton", "Belts", "Black Belt — Silver Hardware", "Black leather belt with polished silver hardware.", 55, { "100cm": 0, "105cm": 3, "110cm": 3, "115cm": 3, "120cm": 0 }, "images/belt-lv-black-silver-hw.jpg"),
-  ...sizedStock("Louis Vuitton", "Belts", "Black Monogram Belt", "Coated canvas belt, all-over monogram print.", 50, { "100cm": 0, "105cm": 3, "110cm": 3, "115cm": 3, "120cm": 2 }, "images/belt-lv-black-monogram.jpg"),
-  ...sizedStock("Louis Vuitton", "Belts", "Embossed Black Belt", "Debossed leather belt with tonal monogram detailing.", 50, { "100cm": 0, "105cm": 3, "110cm": 3, "115cm": 3, "120cm": 3 }, "images/belt-lv-embossed-black.jpg"),
-  ...sizedStock("Louis Vuitton", "Belts", "White Monogram Belt", "Coated canvas belt, all-over monogram print.", 50, { "100cm": 0, "105cm": 4, "110cm": 3, "115cm": 3, "120cm": 2 }, "images/belt-lv-white-monogram.jpg"),
-  ...sizedStock("Louis Vuitton", "Belts", "Multicolor Monogram Belt", "Coated canvas belt, multicolor monogram print.", 60, { "100cm": 0, "105cm": 5, "110cm": 0, "115cm": 0, "120cm": 0 }, "images/belt-lv-multicolor.jpg"),
-
-  // Shoes sheet — 14 units, 2 colorways. Workbook lists colorway only, no brand.
-  ...sizedStock(NEEDS_BRAND, "Shoes", "Silver / White Runner", "Chunky low-top sneaker, layered mesh and suede paneling.", 75, { "EU 42": 1, "EU 43": 1, "EU 44": 3, "EU 45": 2 }, "images/shoe-silver-white.jpg"),
-  ...sizedStock(NEEDS_BRAND, "Shoes", "Black / White Runner", "Chunky low-top sneaker, layered mesh and suede paneling.", 75, { "EU 42": 1, "EU 43": 2, "EU 44": 2, "EU 45": 2 }, "images/shoe-black-white.jpg"),
-
-  // Backpacks sheet — 13 units, 3 colors. Workbook lists color only, no brand.
-  ...oneSizeStock(NEEDS_BRAND, "Backpacks", "Backpack — Green", "Coated canvas backpack, all-over woven print with leather trim.", 70, 3, "images/backpack-green.jpg"),
-  ...oneSizeStock(NEEDS_BRAND, "Backpacks", "Backpack — Black", "Coated canvas backpack, all-over woven print with leather trim.", 70, 5, "images/backpack-black.jpg"),
-  ...oneSizeStock(NEEDS_BRAND, "Backpacks", "Backpack — Brown", "Coated canvas backpack, all-over woven print with leather trim.", 70, 5, "images/backpack-brown.jpg"),
-];
-
-// One card per style. `sizeQty` maps size -> units on hand; zero-qty sizes are dropped, and a
-// style with nothing left drops out entirely. Quantities stay per-size so the modal can show the
-// breakdown, while `stock` is the total shown as "N left" on the card.
-function sizedStock(brand, category, name, desc, price, sizeQty, img) {
-  const sizes = Object.entries(sizeQty)
-    .filter(([, qty]) => qty > 0)
-    .map(([size, qty]) => ({ size, qty }));
-  if (sizes.length === 0) return [];
-  return [{
-    brand,
-    name,
-    category,
-    meta: sizes.map((s) => s.size).join(" · "),
-    price,
-    status: "available",
+// Card shape expected by the rest of the file. Built once per product at load: zero-qty sizes are
+// dropped for display (they stay in products.json so they can be restocked), `meta` is the card's
+// sub-line, and `stock` is the total behind "N left".
+function productFromRecord(r) {
+  const sizes = (r.sizes || []).filter((s) => Number(s.qty) > 0).map((s) => ({ size: s.size, qty: Number(s.qty) }));
+  if (sizes.length === 0) return null;
+  const oneSize = sizes.length === 1 && sizes[0].size === "One Size";
+  return {
+    id: r.id,
+    brand: r.brand || NEEDS_BRAND,
+    name: r.name,
+    category: r.category,
+    meta: oneSize ? "One Size" : sizes.map((s) => s.size).join(" · "),
+    price: Number(r.retailPrice),
+    status: r.status === "sold" ? "sold" : "available",
     sizes,
     stock: sizes.reduce((n, s) => n + s.qty, 0),
-    desc,
-    ...(img ? { img } : {}),
-  }];
+    desc: r.description || "",
+    featured: r.featured === true,
+    // Kept for the pricing fallback and for a future admin UI; pricing.json still wins where set.
+    bulkPrice: typeof r.bulkPrice === "number" ? r.bulkPrice : null,
+    bulkMinQty: typeof r.bulkMinQty === "number" ? r.bulkMinQty : null,
+    images: Array.isArray(r.images) ? r.images : [],
+    ...(r.image ? { img: r.image } : {}),
+  };
 }
 
-function oneSizeStock(brand, category, name, desc, price, qty, img) {
-  if (qty <= 0) return [];
-  return [{
-    brand, name, category, meta: "One Size", price, status: "available",
-    sizes: [{ size: "One Size", qty }], stock: qty, desc, ...(img ? { img } : {}),
-  }];
+async function loadProducts() {
+  try {
+    const res = await fetch("products.json", { cache: "no-store" });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const doc = await res.json();
+    const records = Array.isArray(doc) ? doc : doc.products || [];
+
+    PRODUCTS.length = 0;
+    records.forEach((r) => {
+      const p = productFromRecord(r);
+      if (p) PRODUCTS.push(p);
+    });
+
+    const cats = Array.isArray(doc.categories) && doc.categories.length
+      ? doc.categories.slice()
+      : ["All", ...new Set(PRODUCTS.map((p) => p.category))];
+    CATEGORIES = cats[0] === "All" ? cats : ["All", ...cats];
+
+    PRODUCTS_LOADED = true;
+    validateProducts(records);
+  } catch (err) {
+    console.error(
+      `[products] couldn't load products.json (${err.message}). The catalog will be empty. ` +
+      `Run the site through server.py — a file:// page can't fetch it.`
+    );
+  }
+}
+
+// Same idea as validatePricing(): a bad edit degrades quietly, so the console warning is the only
+// signal the owner gets. Check it after editing products.json.
+function validateProducts(records) {
+  const seenId = new Set(), seenName = new Set();
+  records.forEach((r) => {
+    if (!r.id || !r.name) return console.warn(`[products] record missing id or name:`, r);
+    if (seenId.has(r.id)) console.warn(`[products] duplicate id "${r.id}" — ids must be unique`);
+    if (seenName.has(r.name)) console.warn(`[products] duplicate name "${r.name}" — the cart and pricing.json key on name`);
+    seenId.add(r.id); seenName.add(r.name);
+    if (!CATEGORIES.includes(r.category)) console.warn(`[products] "${r.name}" has category "${r.category}", which isn't in the categories list`);
+    if (typeof r.retailPrice !== "number") console.warn(`[products] "${r.name}" has a non-numeric retailPrice`);
+    if (r.bulkPrice !== null && typeof r.bulkPrice === "number" && r.bulkPrice > r.retailPrice) {
+      console.warn(`[products] "${r.name}" bulkPrice ${r.bulkPrice} is above retailPrice ${r.retailPrice}`);
+    }
+    if (!(r.sizes || []).length) console.warn(`[products] "${r.name}" has no sizes`);
+  });
+  const live = PRODUCTS.length, total = records.length;
+  if (live < total) console.info(`[products] ${total - live} product(s) hidden — every size is at qty 0`);
 }
 
 // ---------- EDIT THIS: shipping ----------
@@ -178,7 +196,23 @@ async function loadPricing() {
 }
 
 // The tier ladder that applies to one product, most specific first.
+// A product carrying its own bulkPrice/bulkMinQty in products.json but with no pricing.json entry
+// prices itself off that pair. Lets a product added through an admin dashboard price correctly
+// without a second edit to pricing.json; pricing.json still wins wherever it has an entry, so
+// nothing that file already covers changes.
+function ownTiers(p) {
+  if (PRICING.products[p.name]) return null;
+  if (typeof p.bulkPrice !== "number" || typeof p.bulkMinQty !== "number") return null;
+  return [{ id: "retail", label: "Single", minQty: 1 }, { id: "bulk", label: "Bulk", minQty: p.bulkMinQty }];
+}
+
+function ownPrices(p) {
+  return { retail: p.basePrice ?? p.price, bulk: p.bulkPrice };
+}
+
 function tiersFor(p) {
+  const own = ownTiers(p);
+  if (own) return own;
   const entry = PRICING.products[p.name];
   if (entry && Array.isArray(entry.tiers) && entry.tiers.length) return entry.tiers;
   const cat = PRICING.categories[p.category];
@@ -194,7 +228,7 @@ function tiersFor(p) {
 // more, even if someone later fat-fingers a bulk price above the retail one. With a correctly
 // descending ladder this picks exactly the same tier the deepest-match rule would.
 function tierFor(p, qty = 1) {
-  const prices = (PRICING.products[p.name] || {}).prices || {};
+  const prices = ownTiers(p) ? ownPrices(p) : ((PRICING.products[p.name] || {}).prices || {});
   let hit = null;
   for (const t of tiersFor(p)) {
     if (qty < t.minQty || typeof prices[t.id] !== "number") continue;
@@ -206,7 +240,7 @@ function tierFor(p, qty = 1) {
 
 // Per-unit price at this quantity. Everything that shows or sums money goes through here.
 function priceFor(p, qty = 1) {
-  const prices = (PRICING.products[p.name] || {}).prices || {};
+  const prices = ownTiers(p) ? ownPrices(p) : ((PRICING.products[p.name] || {}).prices || {});
   const tier = tierFor(p, qty);
   return tier ? prices[tier.id] : (p.basePrice ?? p.price);
 }
@@ -628,12 +662,12 @@ async function submitBid() {
 
 // ---------- featured picks (card stack) — ranked by visitor clicks ----------
 // Used as the tiebreak/starting order until real click counts overtake it.
-const DEFAULT_FEATURED_ORDER = [
-  "3D Logo Tee",
-  "Black Belt — Black Hardware",
-  "Silver / White Runner",
-  "Backpack — Green",
-];
+// Fallback order for the featured stack, read from the `featured` flags in products.json rather
+// than a hardcoded list of names. Real visitor clicks still outrank it — this only decides the
+// order before anyone has clicked anything, and breaks ties after.
+function defaultFeaturedOrder() {
+  return PRODUCTS.filter((p) => p.featured).map((p) => p.name);
+}
 
 let clickCounts = {};
 let FEATURED = [];
@@ -674,8 +708,9 @@ function computeFeatured(n = 4) {
     .sort((a, b) => {
       const byClicks = (clickCounts[b.name] || 0) - (clickCounts[a.name] || 0);
       if (byClicks !== 0) return byClicks;
-      const da = DEFAULT_FEATURED_ORDER.indexOf(a.name);
-      const db = DEFAULT_FEATURED_ORDER.indexOf(b.name);
+      const order = defaultFeaturedOrder();
+      const da = order.indexOf(a.name);
+      const db = order.indexOf(b.name);
       return (da === -1 ? 999 : da) - (db === -1 ? 999 : db);
     })
     .slice(0, n);
@@ -1782,15 +1817,23 @@ function initTilt() {
 document.addEventListener("DOMContentLoaded", async () => {
   initIntro();
   initSignup();
-  // Both must land before the first render — pricing for every price on the page, click counts for
-  // the featured order — but neither depends on the other, and awaiting them in series cost two
-  // round trips back to back before anything could paint. Same two fetches, run side by side.
-  await Promise.all([loadPricing(), loadClickCounts()]);
+  // Everything below renders prices and stock, so both files must land first. products.json and
+  // the click counts don't depend on each other and share one round trip; loadPricing() has to
+  // follow, because it walks PRODUCTS to stash base prices and PRODUCTS doesn't exist until
+  // loadProducts() has run.
+  await Promise.all([loadProducts(), loadClickCounts()]);
+  await loadPricing();
   renderFeatured();
   initStack();
   renderBidCard();
-  setInterval(refreshBidState, 6000);
-  // Catch up the moment the page comes back, so pausing while hidden is invisible.
+  // No 6-second poll. A recurring fetch never lets iOS Safari's page-load indicator go idle, so
+  // the spinner in the address bar turned forever on a phone even though the page had finished
+  // rendering. Confirmed by A/B on the LAN: identical builds on two ports, the only difference
+  // being this line, and the spinner stopped only on the build without it.
+  //
+  // The bid figure still refreshes on load and every time the page becomes visible again, which
+  // is when a viewer can actually see it change. Coming back to the tab is the moment that
+  // mattered anyway — nobody watches a number tick while looking at it.
   document.addEventListener("visibilitychange", () => {
     if (!document.hidden) refreshBidState();
   });
