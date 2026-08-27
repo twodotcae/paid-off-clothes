@@ -1,62 +1,132 @@
 // ---------- EDIT THIS: your stock ----------
 const CATEGORIES = ["All", "T-Shirts", "Belts", "Shoes", "Backpacks"];
 
-// Real stock imported from PO_inventory — generic non-brand names (see chat). 3 "Cough Syrup" tee
-// styles use their real (unbranded) product photos; everything else uses free-license stock photos
-// (Pexels, no attribution required) shared across styles within a category as generic placeholders
-// — swap in real per-item shots when you have them. Prices are placeholders too.
+// Placeholder for a brand we haven't filled in yet. Renders visibly on the card so an
+// unlabelled piece can never quietly ship looking like a finished listing.
+const NEEDS_BRAND = "[brand?]";
+
+// Real stock imported from "PO inventory.xlsm" (Downloads). Brands and per-size quantities
+// come straight from that workbook — quantities were cross-checked against every sheet total.
+// Photos are the 21 images embedded in that workbook, extracted from xl/media and matched to each
+// style by its drawing anchor row (so every shot is provably the one sitting in that sheet row).
+// Prices are still placeholders.
 const PRODUCTS = [
-  ...expandSizedStock("T-Shirts", "Cough Syrup Graphic Tee (Style 1)", "Heavyweight cotton tee, bold graphic front and back print.", 32, { S: 5, M: 5, L: 5, XL: 5, XXL: 0 }, "images/IMG_7806.jpeg"),
-  ...expandSizedStock("T-Shirts", "Cough Syrup Graphic Tee (Style 2)", "Heavyweight cotton tee, bold graphic front and back print.", 32, { S: 5, M: 5, L: 5, XL: 5, XXL: 0 }, "images/IMG_7817.jpeg"),
-  ...expandSizedStock("T-Shirts", "Cough Syrup Graphic Tee (Style 3)", "Heavyweight cotton tee, bold graphic front and back print, cartoon character detail.", 32, { S: 5, M: 5, L: 5, XL: 5, XXL: 0 }, "images/IMG_7807.jpeg"),
-  ...expandSizedStock("T-Shirts", "Bold Block Letter Tee", "Oversized fit tee with large 3D-style block lettering across the chest.", 38, { S: 5, M: 5, L: 5, XL: 4, XXL: 2 }, "images/stock-tee.jpeg"),
-  ...expandSizedStock("T-Shirts", "Minimal Logo Graphic Tee", "Relaxed fit tee with a clean centered wordmark graphic.", 34, { S: 4, M: 5, L: 5, XL: 4, XXL: 2 }, "images/stock-tee.jpeg"),
-  ...expandSizedStock("T-Shirts", "Gothic Cross Tank Top", "Ribbed tank top with a gothic cross emblem print, front and back.", 28, { S: 20, M: 20, L: 20, XL: 5, XXL: 0 }, "images/stock-tee.jpeg"),
+  // Shirts sheet — 166 units across 6 styles.
+  ...sizedStock("That's An Awful Lot Of Cough Syrup", "T-Shirts", "Graphic Tee — Style 1", "Heavyweight cotton tee, bold graphic front and back print.", 32, { S: 5, M: 5, L: 5, XL: 5, XXL: 0 }, "images/tee-awful-lot-1.jpg"),
+  ...sizedStock("That's An Awful Lot Of Cough Syrup", "T-Shirts", "Graphic Tee — Style 2", "Heavyweight cotton tee, bold graphic front and back print.", 32, { S: 5, M: 5, L: 5, XL: 5, XXL: 0 }, "images/tee-awful-lot-2.jpg"),
+  ...sizedStock("That's An Awful Lot Of Cough Syrup", "T-Shirts", "Graphic Tee — Style 3", "Heavyweight cotton tee, bold graphic front and back print, cartoon character detail.", 32, { S: 5, M: 5, L: 5, XL: 5, XXL: 0 }, "images/tee-awful-lot-3.jpg"),
+  ...sizedStock("Amiri", "T-Shirts", "3D Logo Tee", "Oversized fit tee with large 3D-style block lettering across the chest.", 38, { S: 5, M: 5, L: 5, XL: 4, XXL: 2 }, "images/tee-amiri-3d-logo.jpg"),
+  ...sizedStock("Amiri", "T-Shirts", "Logo Tee", "Relaxed fit tee with a clean centered wordmark graphic.", 34, { S: 4, M: 5, L: 5, XL: 4, XXL: 2 }, "images/tee-amiri-logo.jpg"),
 
-  ...expandSizedStock("Belts", "Black Cross Buckle Belt", "Leather belt with an oversized cross-shaped buckle.", 45, { "100cm": 3, "105cm": 0, "110cm": 2, "115cm": 0, "120cm": 0 }, "images/stock-belt.jpeg"),
-  ...expandSizedStock("Belts", "White Buckle Belt (Style 1)", "Leather belt with a polished buckle.", 45, { "100cm": 2, "105cm": 0, "110cm": 2, "115cm": 0, "120cm": 0 }, "images/stock-belt.jpeg"),
-  ...expandSizedStock("Belts", "White Buckle Belt (Style 2)", "Leather belt with a polished buckle.", 45, { "100cm": 6, "105cm": 0, "110cm": 0, "115cm": 0, "120cm": 0 }, "images/stock-belt.jpeg"),
-  ...expandSizedStock("Belts", "White Oval Buckle Belt", "Leather belt with an oval-shaped buckle.", 45, { "100cm": 3, "105cm": 0, "110cm": 3, "115cm": 0, "120cm": 0 }, "images/stock-belt.jpeg"),
-  ...expandSizedStock("Belts", "Two-Tone Monogram Belt — Black Hardware", "Woven monogram-pattern belt, dark hardware.", 55, { "100cm": 0, "105cm": 3, "110cm": 3, "115cm": 3, "120cm": 3 }, "images/stock-belt.jpeg"),
-  ...expandSizedStock("Belts", "Two-Tone Monogram Belt — Silver Hardware", "Woven monogram-pattern belt, polished hardware.", 55, { "100cm": 0, "105cm": 3, "110cm": 3, "115cm": 3, "120cm": 0 }, "images/stock-belt.jpeg"),
-  ...expandSizedStock("Belts", "Monogram Print Belt — Black", "Coated canvas belt, all-over monogram print.", 50, { "100cm": 0, "105cm": 3, "110cm": 3, "115cm": 3, "120cm": 2 }, "images/stock-belt.jpeg"),
-  ...expandSizedStock("Belts", "Embossed Belt — Black", "Debossed leather belt with tonal pattern detailing.", 50, { "100cm": 0, "105cm": 3, "110cm": 3, "115cm": 3, "120cm": 3 }, "images/stock-belt.jpeg"),
-  ...expandSizedStock("Belts", "Monogram Print Belt — White", "Coated canvas belt, all-over monogram print.", 50, { "100cm": 0, "105cm": 4, "110cm": 3, "115cm": 3, "120cm": 2 }, "images/stock-belt.jpeg"),
-  ...expandSizedStock("Belts", "Multicolor Monogram Belt", "Coated canvas belt, multicolor monogram print.", 60, { "100cm": 0, "105cm": 5, "110cm": 0, "115cm": 0, "120cm": 0 }, "images/stock-belt.jpeg"),
+  // Belts sheet — 82 units across 10 live styles (row 3 is blank in the workbook).
+  ...sizedStock("Chrome Hearts", "Belts", "Black Cross Buckle Belt", "Leather belt with an oversized cross-shaped buckle.", 45, { "100cm": 3, "105cm": 0, "110cm": 2, "115cm": 0, "120cm": 0 }, "images/belt-ch-black-cross.jpg"),
+  ...sizedStock("Chrome Hearts", "Belts", "White Buckle Belt — Style 1", "Leather belt with a polished buckle.", 45, { "100cm": 2, "105cm": 0, "110cm": 2, "115cm": 0, "120cm": 0 }, "images/belt-ch-white-buckle-1.jpg"),
+  ...sizedStock("Chrome Hearts", "Belts", "White Buckle Belt — Style 3", "Leather belt with a polished buckle.", 45, { "100cm": 6, "105cm": 0, "110cm": 0, "115cm": 0, "120cm": 0 }, "images/belt-ch-white-buckle-3.jpg"),
+  ...sizedStock("Chrome Hearts", "Belts", "White Oval Buckle Belt", "Leather belt with an oval-shaped buckle.", 45, { "100cm": 3, "105cm": 0, "110cm": 3, "115cm": 0, "120cm": 0 }, "images/belt-ch-white-oval.jpg"),
+  ...sizedStock("Louis Vuitton", "Belts", "Black Belt — Black Hardware", "Black leather belt with tonal dark hardware.", 55, { "100cm": 0, "105cm": 3, "110cm": 3, "115cm": 3, "120cm": 3 }, "images/belt-lv-black-black-hw.jpg"),
+  ...sizedStock("Louis Vuitton", "Belts", "Black Belt — Silver Hardware", "Black leather belt with polished silver hardware.", 55, { "100cm": 0, "105cm": 3, "110cm": 3, "115cm": 3, "120cm": 0 }, "images/belt-lv-black-silver-hw.jpg"),
+  ...sizedStock("Louis Vuitton", "Belts", "Black Monogram Belt", "Coated canvas belt, all-over monogram print.", 50, { "100cm": 0, "105cm": 3, "110cm": 3, "115cm": 3, "120cm": 2 }, "images/belt-lv-black-monogram.jpg"),
+  ...sizedStock("Louis Vuitton", "Belts", "Embossed Black Belt", "Debossed leather belt with tonal monogram detailing.", 50, { "100cm": 0, "105cm": 3, "110cm": 3, "115cm": 3, "120cm": 3 }, "images/belt-lv-embossed-black.jpg"),
+  ...sizedStock("Louis Vuitton", "Belts", "White Monogram Belt", "Coated canvas belt, all-over monogram print.", 50, { "100cm": 0, "105cm": 4, "110cm": 3, "115cm": 3, "120cm": 2 }, "images/belt-lv-white-monogram.jpg"),
+  ...sizedStock("Louis Vuitton", "Belts", "Multicolor Monogram Belt", "Coated canvas belt, multicolor monogram print.", 60, { "100cm": 0, "105cm": 5, "110cm": 0, "115cm": 0, "120cm": 0 }, "images/belt-lv-multicolor.jpg"),
 
-  ...expandSizedStock("Shoes", "Silver / White Runner", "Chunky low-top sneaker, layered mesh and suede paneling.", 75, { "EU 42": 1, "EU 43": 1, "EU 44": 3, "EU 45": 2 }, "images/stock-sneaker.jpeg"),
-  ...expandSizedStock("Shoes", "Black / White Runner", "Chunky low-top sneaker, layered mesh and suede paneling.", 75, { "EU 42": 1, "EU 43": 2, "EU 44": 2, "EU 45": 2 }, "images/stock-sneaker.jpeg"),
+  // Shoes sheet — 14 units, 2 colorways. Workbook lists colorway only, no brand.
+  ...sizedStock(NEEDS_BRAND, "Shoes", "Silver / White Runner", "Chunky low-top sneaker, layered mesh and suede paneling.", 75, { "EU 42": 1, "EU 43": 1, "EU 44": 3, "EU 45": 2 }, "images/shoe-silver-white.jpg"),
+  ...sizedStock(NEEDS_BRAND, "Shoes", "Black / White Runner", "Chunky low-top sneaker, layered mesh and suede paneling.", 75, { "EU 42": 1, "EU 43": 2, "EU 44": 2, "EU 45": 2 }, "images/shoe-black-white.jpg"),
 
-  ...oneSizeStock("Backpacks", "Woven Pattern Backpack — Green", "Coated canvas backpack, all-over woven print with leather trim.", 70, 3, "images/stock-backpack.jpeg"),
-  ...oneSizeStock("Backpacks", "Woven Pattern Backpack — Black", "Coated canvas backpack, all-over woven print with leather trim.", 70, 5, "images/stock-backpack.jpeg"),
-  ...oneSizeStock("Backpacks", "Woven Pattern Backpack — Brown", "Coated canvas backpack, all-over woven print with leather trim.", 70, 5, "images/stock-backpack.jpeg"),
+  // Backpacks sheet — 13 units, 3 colors. Workbook lists color only, no brand.
+  ...oneSizeStock(NEEDS_BRAND, "Backpacks", "Backpack — Green", "Coated canvas backpack, all-over woven print with leather trim.", 70, 3, "images/backpack-green.jpg"),
+  ...oneSizeStock(NEEDS_BRAND, "Backpacks", "Backpack — Black", "Coated canvas backpack, all-over woven print with leather trim.", 70, 5, "images/backpack-black.jpg"),
+  ...oneSizeStock(NEEDS_BRAND, "Backpacks", "Backpack — Brown", "Coated canvas backpack, all-over woven print with leather trim.", 70, 5, "images/backpack-brown.jpg"),
 ];
 
-// Expands a style into one product card per size that's actually in stock (skips zero-qty sizes).
-// No `img` — these show the "Photo Coming" placeholder until real (non-branded) photos are added.
-function expandSizedStock(category, name, desc, price, sizeQty, img) {
-  return Object.entries(sizeQty)
+// One card per style. `sizeQty` maps size -> units on hand; zero-qty sizes are dropped, and a
+// style with nothing left drops out entirely. Quantities stay per-size so the modal can show the
+// breakdown, while `stock` is the total shown as "N left" on the card.
+function sizedStock(brand, category, name, desc, price, sizeQty, img) {
+  const sizes = Object.entries(sizeQty)
     .filter(([, qty]) => qty > 0)
-    .map(([size, qty]) => ({
-      name,
-      category,
-      meta: `Size ${size}`,
-      price,
-      status: "available",
-      stock: qty,
-      desc,
-      ...(img ? { img } : {}),
-    }));
+    .map(([size, qty]) => ({ size, qty }));
+  if (sizes.length === 0) return [];
+  return [{
+    brand,
+    name,
+    category,
+    meta: sizes.map((s) => s.size).join(" · "),
+    price,
+    status: "available",
+    sizes,
+    stock: sizes.reduce((n, s) => n + s.qty, 0),
+    desc,
+    ...(img ? { img } : {}),
+  }];
 }
 
-function oneSizeStock(category, name, desc, price, qty, img) {
+function oneSizeStock(brand, category, name, desc, price, qty, img) {
   if (qty <= 0) return [];
-  return [{ name, category, meta: "One Size", price, status: "available", stock: qty, desc, ...(img ? { img } : {}) }];
+  return [{
+    brand, name, category, meta: "One Size", price, status: "available",
+    sizes: [{ size: "One Size", qty }], stock: qty, desc, ...(img ? { img } : {}),
+  }];
+}
+
+// ---------- EDIT THIS: shipping ----------
+// Per-item shipping weights. The workbook carries no weights, so these are estimates by category
+// — correct them against a kitchen scale before going live, since postage is billed on real weight.
+// A single product can override its category with a `weightOz` field.
+const CATEGORY_WEIGHT_OZ = {
+  "T-Shirts": 7,
+  Belts: 10,
+  Shoes: 40,
+  Backpacks: 32,
+};
+
+const PACKAGING_OZ = 3; // mailer / box / padding added once per order
+
+// USPS Ground Advantage tiers, cheapest first; the first tier the order fits under wins.
+// As of the 12 July 2026 USPS change, everything under 1 lb costs the same within a zone, which is
+// why the first band is flat rather than an ounce-by-ounce ladder.
+//
+// THESE ARE NATIONAL-AVERAGE PLACEHOLDERS, NOT YOUR RATES. Ground Advantage is zone-priced, so a
+// flat table overcharges nearby buyers and undercharges distant ones. Replace each `price` with a
+// real quote from Pirate Ship's calculator for the zones you actually ship to.
+const SHIPPING_TIERS = [
+  { maxOz: 15.99, price: 5.5, label: "Under 1 lb" },
+  { maxOz: 16, price: 7.61, label: "1 lb" },
+  { maxOz: 32, price: 8.5, label: "2 lb" },
+  { maxOz: 48, price: 9.5, label: "3 lb" },
+  { maxOz: 80, price: 12, label: "5 lb" },
+  { maxOz: 160, price: 17, label: "10 lb" },
+];
+
+const SHIPPING_OVER_MAX = 22; // anything heavier than the last tier
+
+function weightOf(p) {
+  return p.weightOz ?? CATEGORY_WEIGHT_OZ[p.category] ?? 8;
+}
+
+// Total billable weight for an order: every unit, plus packaging once.
+function orderWeightOz(lines) {
+  if (lines.length === 0) return 0;
+  return lines.reduce((oz, l) => oz + weightOf(l) * l.qty, 0) + PACKAGING_OZ;
+}
+
+function shippingFor(lines) {
+  if (lines.length === 0) return 0;
+  const oz = orderWeightOz(lines);
+  const tier = SHIPPING_TIERS.find((t) => oz <= t.maxOz);
+  return tier ? tier.price : SHIPPING_OVER_MAX;
+}
+
+function money(n) {
+  return `$${n.toFixed(2)}`;
 }
 
 const state = { category: "All", search: "", sizes: [], minPrice: null, maxPrice: null, inStockOnly: false, sort: "newest" };
 const tiltBound = new WeakSet();
 let currentModalProduct = null;
+let selectedSize = null;
+let selectedQty = 1;
 let checkoutItems = [];
 
 // Most placeholder pieces are one-off (no stock field, implied qty 1); real multi-unit
@@ -66,10 +136,20 @@ function stockLabel(p) {
   return qty > 1 ? `${qty} left` : "1 left";
 }
 
-// meta is "<size/fit> · <condition>" (e.g. "Size 10 · 9/10"), or just "<size/fit>" with no delimiter.
-function sizeOf(p) {
-  const [rawSize] = p.meta.split(" · ");
-  return (rawSize || p.meta).replace(/^Size\s+/i, "");
+// Brand + name as one string, for cart lines, orders, and anywhere a single label is needed.
+// An unfilled brand is left off entirely — the `[brand?]` sentinel is a storefront warning, and
+// has no business being written into a stored order record.
+function fullName(p) {
+  return hasBrand(p) ? `${p.brand} ${p.name}` : p.name;
+}
+
+function hasBrand(p) {
+  return p.brand && p.brand !== NEEDS_BRAND;
+}
+
+// Every size a style still has units in, e.g. ["S","M","L","XL"].
+function sizesOf(p) {
+  return p.sizes.map((s) => s.size);
 }
 
 // ---------- bid of the week ----------
@@ -103,6 +183,7 @@ function renderBidCard() {
     <div class="bid-card-media">${bidItem.img ? `<img src="${bidItem.img}" alt="${bidItem.name}">` : ""}</div>
     <div class="bid-card-info">
       <span class="tag available">Last One In Stock</span>
+      <p class="card-brand${hasBrand(bidItem) ? "" : " card-brand-missing"}">${bidItem.brand}</p>
       <h3>${bidItem.name}</h3>
       <p class="card-meta">${bidItem.category} · ${bidItem.meta}</p>
       <p class="bid-card-desc">${bidItem.desc}</p>
@@ -201,10 +282,10 @@ async function submitBid() {
 // ---------- featured picks (card stack) — ranked by visitor clicks ----------
 // Used as the tiebreak/starting order until real click counts overtake it.
 const DEFAULT_FEATURED_ORDER = [
-  "Bold Block Letter Tee",
-  "Two-Tone Monogram Belt — Black Hardware",
+  "3D Logo Tee",
+  "Black Belt — Black Hardware",
   "Silver / White Runner",
-  "Woven Pattern Backpack — Green",
+  "Backpack — Green",
 ];
 
 let clickCounts = {};
@@ -242,10 +323,10 @@ function computeFeatured(n = 4) {
 }
 
 function featuredStatsFor(p) {
-  const [, rawCondition] = p.meta.split(" · ");
+  const sizes = sizesOf(p);
   return [
-    ["Size", sizeOf(p)],
-    ["Condition", rawCondition || "—"],
+    ["Sizes", sizes.length > 1 ? `${sizes[0]}–${sizes[sizes.length - 1]}` : sizes[0]],
+    ["Units", String(p.stock)],
     ["Price", `$${p.price}`],
     ["Status", p.status === "sold" ? "Sold Out" : "Available"],
   ];
@@ -286,6 +367,7 @@ function renderFeatured() {
         ${featuredStatsFor(p).map(([label, value]) => `<div class="stack-spec"><dd class="stack-spec-value">${value}</dd><dt class="stack-spec-label">${label}</dt></div>`).join("")}
       </dl>
       <div class="stack-image">${p.img ? `<img src="${p.img}" alt="${p.name}" loading="lazy">` : `<span>Photo Coming</span>`}</div>
+      <span class="stack-brand${hasBrand(p) ? "" : " card-brand-missing"}">${p.brand}</span>
       <span class="stack-title">${p.name}</span>
       <span class="stack-subtitle">${p.category}</span>
       <p class="stack-desc">${p.desc}</p>
@@ -410,7 +492,7 @@ function renderCategoryTiles() {
 
 function renderSizeFilter() {
   const wrap = document.getElementById("size-filter");
-  const sizes = [...new Set(PRODUCTS.map(sizeOf))].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+  const sizes = [...new Set(PRODUCTS.flatMap(sizesOf))].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
 
   wrap.innerHTML = sizes.map((s) => `
     <button type="button" class="size-chip ${state.sizes.includes(s) ? "active" : ""}" data-size="${s}">${s}</button>
@@ -431,9 +513,10 @@ function renderSizeFilter() {
 function getFilteredProducts() {
   let items = PRODUCTS.filter((p) => {
     const matchesCategory = state.category === "All" || p.category === state.category;
-    const matchesSearch = p.name.toLowerCase().includes(state.search.toLowerCase());
+    const q = state.search.toLowerCase();
+    const matchesSearch = fullName(p).toLowerCase().includes(q);
     const matchesStock = !state.inStockOnly || p.status === "available";
-    const matchesSize = state.sizes.length === 0 || state.sizes.includes(sizeOf(p));
+    const matchesSize = state.sizes.length === 0 || sizesOf(p).some((sz) => state.sizes.includes(sz));
     const matchesMin = state.minPrice == null || p.price >= state.minPrice;
     const matchesMax = state.maxPrice == null || p.price <= state.maxPrice;
     return matchesCategory && matchesSearch && matchesStock && matchesSize && matchesMin && matchesMax;
@@ -461,6 +544,7 @@ function renderProducts() {
         <span class="tag ${p.status}">${p.status === "sold" ? "Sold Out" : "Available"}</span>
       </div>
       <div class="card-body">
+        <p class="card-brand${hasBrand(p) ? "" : " card-brand-missing"}">${p.brand}</p>
         <p class="card-title">${p.name}</p>
         <p class="card-meta">${p.meta}</p>
         <div class="card-foot">
@@ -497,19 +581,70 @@ function openModal(p) {
   const tag = document.getElementById("modal-tag");
   tag.textContent = p.status === "sold" ? "Sold Out" : "Available";
   tag.className = `tag ${p.status}`;
+  const brandEl = document.getElementById("modal-brand");
+  brandEl.textContent = p.brand;
+  brandEl.classList.toggle("card-brand-missing", !hasBrand(p));
   document.getElementById("modal-title").textContent = p.name;
-  document.getElementById("modal-meta").textContent = `${p.category} · ${p.meta}`;
+  document.getElementById("modal-meta").textContent = p.category;
+  // Auto-pick when there's only one option, so one-size pieces need no extra tap.
+  selectedSize = p.sizes.length === 1 ? p.sizes[0].size : null;
+  selectedQty = 1;
+  renderModalSizes();
+  renderModalQty();
   document.getElementById("modal-desc").textContent = p.desc;
   document.getElementById("modal-price").textContent = `$${p.price}`;
   document.getElementById("modal-stock-note").textContent = p.status === "sold" ? "" : stockLabel(p);
-  const buyBtn = document.getElementById("buy-now-btn");
-  buyBtn.disabled = p.status === "sold";
-  buyBtn.textContent = p.status === "sold" ? "Sold Out" : "Buy Now";
-  const cartBtn = document.getElementById("add-to-cart-btn");
-  cartBtn.disabled = p.status === "sold";
-  cartBtn.textContent = "Add to Cart";
+  syncModalActions();
   document.getElementById("modal-overlay").hidden = false;
   syncBodyScroll();
+}
+
+// Chips double as the availability breakdown and the picker — each shows its own units left.
+function renderModalSizes() {
+  const p = currentModalProduct;
+  document.getElementById("modal-sizes").innerHTML = p.sizes
+    .map((s) => `
+      <button type="button" class="size-pill${s.size === selectedSize ? " selected" : ""}"
+              data-size="${s.size}" aria-pressed="${s.size === selectedSize}">
+        <b>${s.size}</b>${s.qty > 1 ? ` &times;${s.qty}` : ""}
+      </button>
+    `).join("");
+
+  document.getElementById("modal-sizes").querySelectorAll(".size-pill").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      selectedSize = btn.dataset.size;
+      selectedQty = 1;
+      renderModalSizes();
+      renderModalQty();
+      syncModalActions();
+    });
+  });
+}
+
+// The stepper only appears once a size is chosen, since stock is per-size.
+function renderModalQty() {
+  const row = document.getElementById("modal-qty-row");
+  row.hidden = !selectedSize;
+  if (!selectedSize) return;
+
+  const max = unitsFor(currentModalProduct, selectedSize);
+  document.getElementById("qty-value").textContent = String(selectedQty);
+  document.getElementById("qty-minus").disabled = selectedQty <= 1;
+  document.getElementById("qty-plus").disabled = selectedQty >= max;
+  document.getElementById("qty-max").textContent = `${max} available in ${selectedSize}`;
+}
+
+// Buying needs a size, so both actions stay disabled until one is picked.
+function syncModalActions() {
+  const sold = currentModalProduct.status === "sold";
+  const needsSize = !sold && !selectedSize;
+  const buyBtn = document.getElementById("buy-now-btn");
+  const cartBtn = document.getElementById("add-to-cart-btn");
+
+  buyBtn.disabled = sold || needsSize;
+  buyBtn.textContent = sold ? "Sold Out" : needsSize ? "Select a Size" : "Buy Now";
+  cartBtn.disabled = sold || needsSize;
+  cartBtn.textContent = "Add to Cart";
 }
 
 function closeModal() {
@@ -525,16 +660,25 @@ function initModal() {
   document.getElementById("modal-media").addEventListener("click", (e) => {
     if (e.target.tagName === "IMG") openLightbox(e.target.src, e.target.alt);
   });
+  document.getElementById("qty-minus").addEventListener("click", () => {
+    selectedQty = clampQty(currentModalProduct, selectedSize, selectedQty - 1);
+    renderModalQty();
+  });
+  document.getElementById("qty-plus").addEventListener("click", () => {
+    selectedQty = clampQty(currentModalProduct, selectedSize, selectedQty + 1);
+    renderModalQty();
+  });
   document.getElementById("buy-now-btn").addEventListener("click", () => {
-    if (!currentModalProduct || currentModalProduct.status === "sold") return;
+    if (!currentModalProduct || currentModalProduct.status === "sold" || !selectedSize) return;
+    const line = cartLine(currentModalProduct, selectedSize, selectedQty);
     closeModal();
-    openCheckout([currentModalProduct]);
+    openCheckout([line]);
   });
   document.getElementById("add-to-cart-btn").addEventListener("click", (e) => {
-    if (!currentModalProduct || currentModalProduct.status === "sold") return;
-    const added = addToCart(currentModalProduct);
+    if (!currentModalProduct || currentModalProduct.status === "sold" || !selectedSize) return;
+    const result = addToCart(currentModalProduct, selectedSize, selectedQty);
     const btn = e.currentTarget;
-    btn.textContent = added ? "Added ✓" : "Already in Cart";
+    btn.textContent = { added: "Added ✓", "topped-up": "Cart Updated ✓", maxed: "All Stock In Cart" }[result];
     setTimeout(() => { btn.textContent = "Add to Cart"; }, 1500);
   });
   document.addEventListener("keydown", (e) => {
@@ -572,18 +716,35 @@ function syncBodyScroll() {
   document.body.style.overflow = anyOpen ? "hidden" : "";
 }
 
-function checkoutItemRow(p, removable) {
+// `removable` rows (the cart) get a live quantity stepper; read-only rows (checkout) show "x N".
+function checkoutItemRow(line, removable) {
+  const sizeLabel = line.size === "One Size" ? "One Size" : `Size ${line.size}`;
+  const max = unitsFor(line, line.size);
+  const qtyControl = removable
+    ? `<div class="qty-stepper qty-stepper-sm">
+         <button type="button" data-line-id="${line.lineId}" data-step="-1" ${line.qty <= 1 ? "disabled" : ""} aria-label="Decrease quantity">&minus;</button>
+         <span>${line.qty}</span>
+         <button type="button" data-line-id="${line.lineId}" data-step="1" ${line.qty >= max ? "disabled" : ""} aria-label="Increase quantity">+</button>
+       </div>`
+    : `<span class="checkout-item-qty">&times;${line.qty}</span>`;
+
   return `
     <div class="checkout-item">
-      <div class="checkout-item-media">${p.img ? `<img src="${p.img}" alt="${p.name}">` : ""}</div>
+      <div class="checkout-item-media">${line.img ? `<img src="${line.img}" alt="${line.name}">` : ""}</div>
       <div class="checkout-item-info">
-        <span class="checkout-item-name">${p.name}</span>
-        <span class="checkout-item-meta">${p.category} · ${p.meta}</span>
+        <span class="checkout-item-name">${fullName(line)}</span>
+        <span class="checkout-item-meta">${line.category} &middot; ${sizeLabel}</span>
       </div>
-      <span class="price">$${p.price}</span>
-      ${removable ? `<button type="button" class="checkout-item-remove" data-name="${p.name}" aria-label="Remove">&times;</button>` : ""}
+      ${qtyControl}
+      <span class="price">$${line.price * line.qty}</span>
+      ${removable ? `<button type="button" class="checkout-item-remove" data-line-id="${line.lineId}" aria-label="Remove">&times;</button>` : ""}
     </div>
   `;
+}
+
+// Every money figure runs through here so price x quantity is never summed by hand.
+function lineTotal(lines) {
+  return lines.reduce((sum, l) => sum + l.price * l.qty, 0);
 }
 
 // ---------- checkout (front-end mock — no payment processor wired up yet) ----------
@@ -600,17 +761,22 @@ function formatExpiry(value) {
 // items is always an array — a lone "Buy Now" is a one-item array, cart checkout is the whole cart.
 function openCheckout(items) {
   checkoutItems = items;
-  const total = items.reduce((sum, p) => sum + p.price, 0);
+  const subtotal = lineTotal(items);
+  const shipping = shippingFor(items);
+  const total = subtotal + shipping;
 
   document.getElementById("checkout-items").innerHTML = items.map((p) => checkoutItemRow(p, false)).join("");
-  document.getElementById("checkout-total-price").textContent = `$${total}`;
+  document.getElementById("checkout-subtotal").textContent = money(subtotal);
+  document.getElementById("checkout-shipping").textContent = money(shipping);
+  document.getElementById("checkout-ship-note").textContent = `(${(orderWeightOz(items) / 16).toFixed(1)} lb, Ground Advantage)`;
+  document.getElementById("checkout-total-price").textContent = money(total);
   document.getElementById("checkout-form").reset();
   document.getElementById("checkout-form-view").hidden = false;
   document.getElementById("checkout-success-view").hidden = true;
 
   const payBtn = document.getElementById("checkout-pay-btn");
   payBtn.disabled = false;
-  document.getElementById("checkout-pay-label").innerHTML = `Pay <span id="checkout-pay-amount">$${total}</span>`;
+  document.getElementById("checkout-pay-label").innerHTML = `Pay <span id="checkout-pay-amount">${money(total)}</span>`;
 
   const applePayBtn = document.getElementById("apple-pay-btn");
   applePayBtn.disabled = false;
@@ -631,21 +797,36 @@ function closeCheckout() {
 function completeCheckout(triggerLabelEl, method, successMessage, email) {
   triggerLabelEl.textContent = "Processing...";
   const items = checkoutItems;
-  const total = items.reduce((sum, p) => sum + p.price, 0);
+  const subtotal = lineTotal(items);
+  const shipping = shippingFor(items);
+  const val = (id) => document.getElementById(id).value.trim();
 
-  const address = document.getElementById("co-address").value;
+  // Kept as separate fields because Pirate Ship's spreadsheet upload needs one column each.
+  const ship_to = {
+    name: val("co-ship-name"),
+    address1: val("co-address1"),
+    address2: val("co-address2"),
+    city: val("co-city"),
+    state: val("co-state").toUpperCase(),
+    zip: val("co-zip"),
+    country: "US",
+  };
+
   fetch("/api/order", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       email,
-      total,
-      address,
-      items: items.map((p) => ({ name: p.name, price: p.price })),
+      subtotal,
+      shipping,
+      total: subtotal + shipping,
+      weight_oz: orderWeightOz(items),
+      ship_to,
+      items: items.map((l) => ({ name: fullName(l), size: l.size, qty: l.qty, price: l.price })),
     }),
   }).catch(() => {});
 
-  items.forEach((p) => removeFromCart(p.name));
+  items.forEach((l) => removeFromCart(l.lineId));
 
   setTimeout(() => {
     document.getElementById("checkout-form-view").hidden = true;
@@ -698,38 +879,80 @@ function initCheckout() {
 }
 
 // ---------- cart ----------
+// A cart entry is a *line*: the product plus the size the buyer picked. Two sizes of one style are
+// two lines. Spreading the product keeps every existing `line.price` / `line.img` read working.
 let cart = [];
+
+function cartLine(p, size, qty = 1) {
+  return { ...p, size, qty: clampQty(p, size, qty), lineId: `${p.name}__${size}` };
+}
+
+// Units on hand for one size of a style — the ceiling on everything quantity-related.
+function unitsFor(p, size) {
+  const entry = p.sizes.find((s) => s.size === size);
+  return entry ? entry.qty : 0;
+}
+
+function clampQty(p, size, qty) {
+  return Math.max(1, Math.min(Math.round(qty) || 1, unitsFor(p, size)));
+}
 
 function loadCart() {
   try {
-    const names = JSON.parse(localStorage.getItem("poc_cart") || "[]");
-    cart = names.map((n) => PRODUCTS.find((p) => p.name === n)).filter(Boolean);
+    const saved = JSON.parse(localStorage.getItem("poc_cart") || "[]");
+    cart = saved
+      .map(({ name, size, qty }) => {
+        const p = PRODUCTS.find((x) => x.name === name);
+        // Drop lines whose style or size has since sold out of the workbook.
+        if (!p || !sizesOf(p).includes(size)) return null;
+        return cartLine(p, size, qty);
+      })
+      .filter(Boolean);
   } catch (e) {
     cart = [];
   }
 }
 
 function saveCart() {
-  localStorage.setItem("poc_cart", JSON.stringify(cart.map((p) => p.name)));
+  localStorage.setItem("poc_cart", JSON.stringify(cart.map((l) => ({ name: l.name, size: l.size, qty: l.qty }))));
 }
 
 function updateCartBadge() {
   const badge = document.getElementById("cart-badge");
-  badge.textContent = String(cart.length);
-  badge.hidden = cart.length === 0;
+  const units = cart.reduce((n, l) => n + l.qty, 0);
+  badge.textContent = String(units);
+  badge.hidden = units === 0;
 }
 
-function addToCart(p) {
-  if (cart.some((item) => item.name === p.name)) return false;
-  cart.push(p);
+// Returns "added", "topped-up", or "maxed" so the button can say what actually happened.
+function addToCart(p, size, qty = 1) {
+  const line = cartLine(p, size, qty);
+  const existing = cart.find((l) => l.lineId === line.lineId);
+  if (existing) {
+    const before = existing.qty;
+    existing.qty = clampQty(p, size, existing.qty + line.qty);
+    saveCart();
+    updateCartBadge();
+    return existing.qty === before ? "maxed" : "topped-up";
+  }
+  cart.push(line);
   saveCart();
   updateCartBadge();
-  return true;
+  return "added";
 }
 
-function removeFromCart(name) {
-  if (!cart.some((p) => p.name === name)) return;
-  cart = cart.filter((p) => p.name !== name);
+function setLineQty(lineId, qty) {
+  const line = cart.find((l) => l.lineId === lineId);
+  if (!line) return;
+  line.qty = clampQty(line, line.size, qty);
+  saveCart();
+  updateCartBadge();
+  if (!document.getElementById("cart-overlay").hidden) renderCartItems();
+}
+
+function removeFromCart(lineId) {
+  if (!cart.some((l) => l.lineId === lineId)) return;
+  cart = cart.filter((l) => l.lineId !== lineId);
   saveCart();
   updateCartBadge();
   if (!document.getElementById("cart-overlay").hidden) renderCartItems();
@@ -743,13 +966,27 @@ function renderCartItems() {
 
   emptyNote.hidden = cart.length > 0;
   totalRow.hidden = cart.length === 0;
+  document.getElementById("cart-subtotal-row").hidden = cart.length === 0;
+  document.getElementById("cart-shipping-row").hidden = cart.length === 0;
   checkoutBtn.hidden = cart.length === 0;
 
   wrap.innerHTML = cart.map((p) => checkoutItemRow(p, true)).join("");
-  document.getElementById("cart-total-price").textContent = `$${cart.reduce((sum, p) => sum + p.price, 0)}`;
+  const cartSub = lineTotal(cart);
+  const cartShip = shippingFor(cart);
+  document.getElementById("cart-subtotal").textContent = money(cartSub);
+  document.getElementById("cart-shipping").textContent = money(cartShip);
+  document.getElementById("cart-ship-note").textContent = cart.length ? `(${(orderWeightOz(cart) / 16).toFixed(1)} lb)` : "";
+  document.getElementById("cart-total-price").textContent = money(cartSub + cartShip);
 
   wrap.querySelectorAll(".checkout-item-remove").forEach((btn) => {
-    btn.addEventListener("click", () => removeFromCart(btn.dataset.name));
+    btn.addEventListener("click", () => removeFromCart(btn.dataset.lineId));
+  });
+
+  wrap.querySelectorAll(".qty-stepper button").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const line = cart.find((l) => l.lineId === btn.dataset.lineId);
+      if (line) setLineQty(line.lineId, line.qty + Number(btn.dataset.step));
+    });
   });
 }
 
@@ -780,7 +1017,13 @@ function initCart() {
 // ---------- my orders (email lookup — no accounts) ----------
 function orderRow(order) {
   const date = new Date(order.time * 1000).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
-  const itemsSummary = order.items.map((it) => `1x ${it.name}`).join(", ");
+  const itemsSummary = order.items
+    .map((it) => `${it.qty || 1}x ${it.name}${it.size ? ` (${it.size})` : ""}`)
+    .join(", ");
+  const s = order.ship_to;
+  const addr = s
+    ? [s.name, s.address1, s.address2, `${s.city}, ${s.state} ${s.zip}`].filter(Boolean).join(", ")
+    : order.address || "Not provided"; // orders placed before the address split
   return `
     <div class="order-card">
       <div class="order-card-head">
@@ -796,11 +1039,13 @@ function orderRow(order) {
       <div class="order-details" hidden>
         <div class="order-field-row order-field-block">
           <p class="order-field-label">Placed</p>
-          <p class="order-field-value">${date} · $${order.total}</p>
+          <p class="order-field-value">${date} &middot; ${money(order.total)}${
+            order.shipping != null ? ` (incl. ${money(order.shipping)} shipping)` : ""
+          }</p>
         </div>
         <div class="order-field-row order-field-block">
           <p class="order-field-label">Shipping address</p>
-          <p class="order-field-value">${order.address || "Not provided"}</p>
+          <p class="order-field-value">${addr}</p>
         </div>
         <div class="order-field-row order-field-block">
           <p class="order-field-label">Items</p>
@@ -859,6 +1104,50 @@ function closeOrders() {
   syncBodyScroll();
 }
 
+// ---------- opening logo reveal ----------
+// Flip to true to play only on the first page of a browsing session rather than every load.
+const INTRO_ONCE_PER_SESSION = false;
+
+function initIntro() {
+  const intro = document.getElementById("intro");
+  if (!intro) return;
+
+  const alreadyPlayed = INTRO_ONCE_PER_SESSION && sessionStorage.getItem("poc_intro_played") === "1";
+  if (alreadyPlayed) {
+    intro.hidden = true;
+    return;
+  }
+
+  document.body.classList.add("intro-playing");
+
+  const finish = () => {
+    if (intro.hidden) return;
+    intro.hidden = true;
+    document.body.classList.remove("intro-playing");
+    try {
+      sessionStorage.setItem("poc_intro_played", "1");
+    } catch (e) {
+      // private mode — the intro just replays, which is harmless
+    }
+  };
+
+  // The overlay's own fade-out is the signal it's done; the timeout is a belt-and-braces guard in
+  // case animationend never fires (background tab, animations disabled at the OS level).
+  intro.addEventListener("animationend", (e) => {
+    if (e.animationName === "intro-out") finish();
+  });
+  setTimeout(finish, 4200);
+
+  document.getElementById("intro-skip").addEventListener("click", finish);
+  intro.addEventListener("click", finish);
+  document.addEventListener("keydown", function onKey(e) {
+    if (e.key === "Escape" || e.key === " " || e.key === "Enter") {
+      finish();
+      document.removeEventListener("keydown", onKey);
+    }
+  });
+}
+
 // ---------- email gate (blocks the site until an email is captured) ----------
 // Welcome + new-drop emails go out via Resend later — not wired up yet, this just
 // persists the signup server-side and remembers the visitor locally so they aren't
@@ -904,6 +1193,73 @@ function initGate() {
     overlay.hidden = true;
     document.body.style.overflow = "";
   });
+}
+
+// ---------- vouches (buyer comments from the IG reference post) ----------
+// Source: instagram.com/p/DQnkaFVkYIZ — a post that explicitly asked past buyers to vouch.
+// Quotes are verbatim, including spelling and emoji. Do not reword them: these are other people's
+// words, and tidying them up turns a real quote into a fabricated one.
+//
+// Handles are stored ALREADY MASKED, deliberately. Masking only at render time would still ship the
+// real usernames in the page source, which is not anonymity. The originals live on the public post
+// itself, so nothing is lost by keeping them out of this file.
+const VOUCH_POST_URL = "https://www.instagram.com/p/DQnkaFVkYIZ/";
+
+const VOUCHES = [
+  { handle: "2*********",   text: "great deals and great quality 🔥" },
+  { handle: "w***********", text: "always good business 💯" },
+  { handle: "b************", text: "he's legit go cop for your needs 🤞🏼🤞🏼🤞🏼" },
+  { handle: "d***********", text: "bro is sooo legit 🤫🤪🔥‼️" },
+  { handle: "r**********",  text: "Reliable tapn ✅" },
+  { handle: "i*********",   text: "🔥🔥🔥🔥 tapnnn legit" },
+  { handle: "u**********",  text: "Hella clean tapn🙏😮‍💨🔥" },
+  { handle: "f*******",     text: "legit 🙏🏾" },
+];
+
+// The footer is the vouch rotator: one quote at a time, swapped every VOUCH_ROTATE_MS. All the
+// quotes are rendered up front and stacked, and only `.is-active` is visible, so a swap is an
+// opacity/transform transition rather than a re-render.
+const VOUCH_ROTATE_MS = 4000;
+
+function initVouchFooter() {
+  const rotator = document.getElementById("vouch-rotator");
+  if (!rotator || VOUCHES.length === 0) return;
+
+  rotator.innerHTML = VOUCHES.map((v, i) => `
+    <span class="vouch-item${i === 0 ? " is-active" : ""}">
+      <span class="vouch-quote">${v.text}</span>
+      <span class="vouch-handle">@${v.handle}</span>
+    </span>`).join("");
+
+  const items = [...rotator.querySelectorAll(".vouch-item")];
+  if (items.length < 2) return;
+
+  let index = 0;
+  let timer = null;
+
+  const advance = () => {
+    items[index].classList.remove("is-active");
+    index = (index + 1) % items.length;
+    items[index].classList.add("is-active");
+  };
+
+  const start = () => {
+    // visibilitychange only fires on a change, so a page that *loads* hidden would otherwise cycle
+    // through its quotes unseen; check the current state too.
+    if (!timer && !document.hidden) timer = setInterval(advance, VOUCH_ROTATE_MS);
+  };
+  const stop = () => {
+    clearInterval(timer);
+    timer = null;
+  };
+
+  start();
+
+  // Hold the quote while it's being read, and don't cycle in a background tab.
+  const footer = document.getElementById("vouch-footer");
+  footer.addEventListener("mouseenter", stop);
+  footer.addEventListener("mouseleave", start);
+  document.addEventListener("visibilitychange", () => (document.hidden ? stop() : start()));
 }
 
 // ---------- search / filter / sort controls ----------
@@ -994,6 +1350,7 @@ function initTilt() {
 }
 
 document.addEventListener("DOMContentLoaded", async () => {
+  initIntro();
   initGate();
   await loadClickCounts();
   renderFeatured();
@@ -1003,6 +1360,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   renderCategoryTiles();
   renderSizeFilter();
   renderProducts();
+  initVouchFooter();
   loadCart();
   updateCartBadge();
   initModal();

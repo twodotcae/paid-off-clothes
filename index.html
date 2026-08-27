@@ -4,11 +4,26 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Paid Off Clothes — Curated Resale</title>
-<link rel="stylesheet" href="styles.css?v=2" />
+<link rel="stylesheet" href="styles.css?v=23" />
 </head>
 <body>
 
 <div class="noise" aria-hidden="true"></div>
+
+<!-- opening logo reveal — sits above the email gate (z 1000) and unmounts itself when done -->
+<div class="intro" id="intro">
+  <div class="intro-bg" aria-hidden="true">
+    <span class="intro-sky intro-sky-far"></span>
+    <span class="intro-sky intro-sky-near"></span>
+    <span class="intro-horizon"></span>
+  </div>
+  <div class="intro-stage">
+    <img src="images/logo.png?v=2" alt="Paid Off Clothes" class="intro-logo" />
+  </div>
+  <!-- sibling of the stage, not a child, so the sweep crosses the viewport instead of spinning -->
+  <span class="intro-sheen" aria-hidden="true"></span>
+  <button type="button" class="intro-skip" id="intro-skip">Skip</button>
+</div>
 
 <!-- email gate — blocks the site until an email is captured. Welcome email + drop
      announcements go out via Resend later; this just persists the signup for now. -->
@@ -180,11 +195,14 @@
   </div>
 </section>
 
-<footer class="site-footer">
-  <div class="wrap footer-inner">
-    <span>Paid Off Clothes — resale, curated.</span>
-    <span>&copy; 2026. All items final sale.</span>
+
+
+<!-- single fixed footer: cycles one buyer vouch at a time, brand line beneath -->
+<footer class="site-footer" id="vouch-footer">
+  <div class="vouch-rotator" id="vouch-rotator">
+    <!-- one item per vouch, injected by script.js; only .is-active is visible -->
   </div>
+  <p class="site-footer-line">Paid Off Clothes — resale, curated. &copy; 2026. All items final sale.</p>
 </footer>
 
 <!-- item detail modal -->
@@ -194,8 +212,19 @@
     <div class="modal-media" id="modal-media"><span id="modal-media-label"></span></div>
     <div class="modal-body">
       <span class="tag" id="modal-tag"></span>
+      <p class="card-brand" id="modal-brand"></p>
       <h3 id="modal-title"></h3>
       <p class="card-meta" id="modal-meta"></p>
+      <div class="modal-sizes" id="modal-sizes"></div>
+      <div class="qty-row" id="modal-qty-row" hidden>
+        <span class="qty-label">Qty</span>
+        <div class="qty-stepper">
+          <button type="button" id="qty-minus" aria-label="Decrease quantity">&minus;</button>
+          <span id="qty-value">1</span>
+          <button type="button" id="qty-plus" aria-label="Increase quantity">+</button>
+        </div>
+        <span class="qty-max" id="qty-max"></span>
+      </div>
       <p class="modal-desc" id="modal-desc"></p>
       <div class="modal-foot">
         <div class="price-block">
@@ -223,6 +252,14 @@
 
       <div class="checkout-items" id="checkout-items">
         <!-- line items injected by script.js -->
+      </div>
+      <div class="checkout-subtotal-row">
+        <span>Subtotal</span>
+        <span id="checkout-subtotal"></span>
+      </div>
+      <div class="checkout-subtotal-row">
+        <span>Shipping <em id="checkout-ship-note"></em></span>
+        <span id="checkout-shipping"></span>
       </div>
       <div class="checkout-total-row">
         <span>Total</span>
@@ -271,8 +308,33 @@
         </div>
 
         <div class="form-field">
-          <label for="co-address">Shipping Address</label>
-          <input type="text" id="co-address" placeholder="123 Main St, City, State, ZIP" required autocomplete="shipping street-address" />
+          <label for="co-ship-name">Ship To</label>
+          <input type="text" id="co-ship-name" placeholder="Jordan Smith" required autocomplete="shipping name" />
+        </div>
+
+        <div class="form-field">
+          <label for="co-address1">Street Address</label>
+          <input type="text" id="co-address1" placeholder="123 Main St" required autocomplete="shipping address-line1" />
+        </div>
+
+        <div class="form-field">
+          <label for="co-address2">Apt / Suite <span class="optional">optional</span></label>
+          <input type="text" id="co-address2" placeholder="Apt 4B" autocomplete="shipping address-line2" />
+        </div>
+
+        <div class="form-row form-row-3">
+          <div class="form-field">
+            <label for="co-city">City</label>
+            <input type="text" id="co-city" placeholder="Houston" required autocomplete="shipping address-level2" />
+          </div>
+          <div class="form-field">
+            <label for="co-state">State</label>
+            <input type="text" id="co-state" placeholder="TX" maxlength="2" required autocomplete="shipping address-level1" />
+          </div>
+          <div class="form-field">
+            <label for="co-zip">ZIP</label>
+            <input type="text" id="co-zip" placeholder="77001" inputmode="numeric" maxlength="10" required autocomplete="shipping postal-code" />
+          </div>
         </div>
 
         <button type="submit" class="btn btn-primary checkout-pay-btn tilt" data-tilt-max="6" id="checkout-pay-btn">
@@ -312,6 +374,14 @@
       </div>
       <p class="cart-empty-note" id="cart-empty-note" hidden>Nothing in your cart yet. Add a piece from any listing.</p>
 
+      <div class="checkout-subtotal-row" id="cart-subtotal-row">
+        <span>Subtotal</span>
+        <span id="cart-subtotal"></span>
+      </div>
+      <div class="checkout-subtotal-row" id="cart-shipping-row">
+        <span>Shipping <em id="cart-ship-note"></em></span>
+        <span id="cart-shipping"></span>
+      </div>
       <div class="checkout-total-row" id="cart-total-row">
         <span>Total</span>
         <span class="price" id="cart-total-price"></span>
@@ -345,6 +415,8 @@
   </div>
 </div>
 
-<script src="script.js?v=2"></script>
+
+
+<script src="script.js?v=23"></script>
 </body>
 </html>

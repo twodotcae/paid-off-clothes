@@ -6,3 +6,6 @@ clicks.json
 bids.json
 orders.json
 subscribers.json
+
+# machine-specific dev config (launch.json holds an absolute path)
+.claude/

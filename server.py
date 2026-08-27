@@ -1,5 +1,7 @@
 """Serves the site and backs the click tracker, Bid of the Week, My Orders lookup, and email gate with local JSON files."""
+import csv
 import http.server
+import io
 import json
 import os
 import re
@@ -14,6 +16,18 @@ ORDERS_FILE = os.path.join(DIR, "orders.json")
 SUBSCRIBERS_FILE = os.path.join(DIR, "subscribers.json")
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 lock = threading.Lock()
+
+# The static handler serves this whole directory, which would otherwise hand out orders.json —
+# customer names, emails and shipping addresses — to anyone who guesses the filename. Reach the
+# order data through /api/orders (scoped to one email) or /api/labels.csv instead.
+PRIVATE_FILES = {
+    "orders.json",
+    "subscribers.json",
+    "bids.json",
+    "clicks.json",
+    "server.py",
+    "claude.md",
+}
 
 
 def load_json(path, default):
@@ -42,6 +56,14 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         path = urlsplit(self.path).path
         query = parse_qs(urlsplit(self.path).query)
 
+        # Guard before anything can fall through to the static file handler.
+        leaf = os.path.basename(path).lower()
+        if leaf in PRIVATE_FILES or leaf.startswith("."):
+            self.send_error(404)
+            return
+
+        only_unshipped = (query.get("unshipped") or ["0"])[0] == "1"
+
         if path == "/api/stats":
             with lock:
                 data = load_json(CLICKS_FILE, {})
@@ -53,6 +75,51 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             with lock:
                 bids = load_json(BIDS_FILE, {})
             self._send_json(bids.get(item, {}))
+            return
+
+        # Pirate Ship has no API, so labels are bought by uploading a spreadsheet. This emits one
+        # row per order in the shape their importer's field-mapping step expects. Weight is in
+        # ounces; add Length/Width/Height columns here if you start shipping boxed items.
+        if path == "/api/labels.csv":
+            with lock:
+                orders = load_json(ORDERS_FILE, {})
+            buf = io.StringIO()
+            writer = csv.writer(buf)
+            writer.writerow([
+                "Order ID", "Name", "Email", "Address 1", "Address 2",
+                "City", "State", "Zip", "Country", "Weight (oz)", "Items",
+            ])
+            for email, entries in orders.items():
+                for order in entries:
+                    if only_unshipped and order.get("status", "").startswith("Shipped"):
+                        continue
+                    ship = order.get("ship_to") or {}
+                    if not ship.get("address1"):
+                        continue  # pre-split order, no label-ready address
+                    writer.writerow([
+                        order.get("id", ""),
+                        ship.get("name", ""),
+                        email,
+                        ship.get("address1", ""),
+                        ship.get("address2", ""),
+                        ship.get("city", ""),
+                        ship.get("state", ""),
+                        ship.get("zip", ""),
+                        ship.get("country", "US"),
+                        round(float(order.get("weight_oz", 0)), 1),
+                        "; ".join(
+                            f"{it.get('qty', 1)}x {it.get('name', '')}"
+                            + (f" ({it['size']})" if it.get("size") else "")
+                            for it in order.get("items", [])
+                        ),
+                    ])
+            body = buf.getvalue().encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "text/csv")
+            self.send_header("Content-Disposition", 'attachment; filename="pirateship-labels.csv"')
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
             return
 
         if path == "/api/orders":
@@ -103,11 +170,16 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             payload = self._read_json()
             email = str(payload.get("email", "")).strip().lower() if isinstance(payload, dict) else ""
             items = payload.get("items") if isinstance(payload, dict) else None
-            address = str(payload.get("address", "")).strip() if isinstance(payload, dict) else ""
+            ship_to = payload.get("ship_to") if isinstance(payload, dict) else None
+            if not isinstance(ship_to, dict):
+                ship_to = {}
             try:
                 total = float(payload.get("total", 0))
+                subtotal = float(payload.get("subtotal", 0))
+                shipping = float(payload.get("shipping", 0))
+                weight_oz = float(payload.get("weight_oz", 0))
             except (TypeError, ValueError):
-                total = 0
+                total = subtotal = shipping = weight_oz = 0
             if not email or not items:
                 self._send_json({"ok": False, "error": "Invalid order."})
                 return
@@ -117,8 +189,11 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 order = {
                     "id": order_id,
                     "items": items,
+                    "subtotal": subtotal,
+                    "shipping": shipping,
                     "total": total,
-                    "address": address,
+                    "weight_oz": weight_oz,
+                    "ship_to": ship_to,
                     "time": time.time(),
                     "status": "Hold — pending shipping",
                 }
