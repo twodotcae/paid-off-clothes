@@ -1992,6 +1992,129 @@ body { padding-bottom: var(--footer-h); }
    These are the four things measured as the dominant GPU cost on iPhone. Colours, layout, fonts,
    card design, pricing and the brand look are all untouched — what goes away is per-frame
    compositing work, not the design. */
+/* ---------- cart tier feedback ---------- */
+/* The saved row and the nudge answer two different questions — "did the discount land?" and
+   "am I one piece short of a better one?" — so they read as separate objects, not one panel. */
+.bulk-saved {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 14px 0 0;
+  padding: 10px 14px;
+  border-radius: var(--radius);
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--gray-900);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--gray-300);
+}
+
+.bulk-saved-amount {
+  color: var(--white);
+  font-size: 13px;
+  letter-spacing: 0.04em;
+}
+
+.bulk-nudge {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin: 10px 0 0;
+  padding: 11px 14px;
+  border-radius: var(--radius);
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px dashed var(--gray-800);
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--gray-300);
+}
+
+/* The cliff case — where buying more costs less — is the one worth actually interrupting for. */
+.bulk-nudge.is-cliff {
+  border-style: solid;
+  border-color: var(--gray-700);
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--gray-100);
+}
+
+.bulk-nudge-icon {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--gray-500);
+  flex-shrink: 0;
+}
+
+.bulk-nudge.is-cliff .bulk-nudge-icon { color: var(--white); }
+
+.bulk-nudge-text b {
+  color: var(--white);
+  font-weight: 600;
+}
+
+.bulk-nudge-text em {
+  display: block;
+  margin-top: 3px;
+  font-style: normal;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  letter-spacing: 0.02em;
+  color: var(--white);
+}
+
+/* Per-line: the retail figure struck through, with the tier that replaced it named underneath. */
+.checkout-item-tier {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--gray-300);
+}
+
+/* Stacked, not inline: side by side the two figures nearly double the price cell's width, and the
+   cart row pays for it out of the product name — which then wraps to five or six lines. */
+.checkout-item .price {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  line-height: 1.25;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.price-was {
+  color: var(--gray-500);
+  text-decoration-thickness: 1px;
+  font-size: 0.72em;
+}
+
+/* Cart rows on a phone. Thumbnail, name, stepper, price and remove all sat on one flex line, which
+   left the product name about 52px — one word per line, and a row nearly 250px tall before the tier
+   line was ever added. Wrapping gives the name the full width and drops the controls to a second
+   line, indented past the thumbnail so they read as belonging to it. */
+@media (max-width: 560px) {
+  .checkout-item {
+    flex-wrap: wrap;
+    row-gap: 10px;
+    align-items: flex-start;
+  }
+
+  /* Basis is the full row minus the thumbnail and its gap, so the controls are pushed to line two. */
+  .checkout-item-info { flex: 1 1 calc(100% - 56px); }
+
+  .checkout-item .qty-stepper-sm { margin-left: 56px; }
+
+  .checkout-item .price {
+    margin-left: auto;
+    align-self: center;
+  }
+
+  .checkout-item-remove { align-self: center; }
+}
+
 @media (hover: none) {
 
   /* 1. Film grain. A viewport-sized `mix-blend-mode: overlay` layer forces Safari to re-composite

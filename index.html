@@ -12,7 +12,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=JetBrains+Mono:wght@400;500&display=swap" />
-<link rel="stylesheet" href="styles.css?v=47" />
+<link rel="stylesheet" href="styles.css?v=48" />
 </head>
 <body>
 
@@ -277,6 +277,9 @@
       <div class="checkout-items" id="checkout-items">
         <!-- line items injected by script.js -->
       </div>
+      <!-- bulk savings — no nudge here, quantities are locked on the payment step -->
+      <div id="checkout-bulk-feedback"></div>
+
       <div class="checkout-subtotal-row">
         <span>Subtotal</span>
         <span id="checkout-subtotal"></span>
@@ -398,6 +401,9 @@
       </div>
       <p class="cart-empty-note" id="cart-empty-note" hidden>Nothing in your cart yet. Add a piece from any listing.</p>
 
+      <!-- bulk savings + next-tier nudge — filled by script.js, empty when no tier applies -->
+      <div id="cart-bulk-feedback"></div>
+
       <div class="checkout-subtotal-row" id="cart-subtotal-row">
         <span>Subtotal</span>
         <span id="cart-subtotal"></span>
@@ -441,6 +447,6 @@
 
 
 
-<script src="script.js?v=47"></script>
+<script src="script.js?v=48"></script>
 </body>
 </html>

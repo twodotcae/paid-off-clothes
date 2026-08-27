@@ -259,7 +259,17 @@ function bulkBands(p) {
 // `bulkNoun` per category in pricing.json; falls back to the category name.
 function bulkNoun(p) {
   const cat = PRICING.categories[p.category] || {};
-  return cat.bulkNoun || p.category.toLowerCase();
+  if (cat.bulkNoun) return cat.bulkNoun;
+  // Category names are plural; every use of this is singular or gets pluralised by the caller, so
+  // "Belts" has to fall back to "belt" or the nudge reads "beltss". Set `bulkNoun` in pricing.json
+  // for anything this rule gets wrong.
+  const name = p.category.toLowerCase();
+  return name.endsWith("s") ? name.slice(0, -1) : name;
+}
+
+function bulkPlural(p, n) {
+  const noun = bulkNoun(p);
+  return n === 1 ? noun : `${noun}s`;
 }
 
 function bulkNote(p) {
@@ -294,6 +304,112 @@ function bulkTableHtml(p) {
         </span>`).join("")}
       <span class="bulk-note">${bulkNote(p)}</span>
     </div>`;
+}
+
+// ---------- cart tier feedback ----------
+// The card and the modal advertise the ladder before the buyer commits; these answer the question
+// the cart raises instead — "why did my per-unit price just change?" — and flag the case where one
+// more unit costs less than stopping short. All of it reads through priceFor(), so it can't promise
+// a number the checkout won't charge.
+
+function catLines(lines, category) {
+  return lines.filter((l) => l.category === category);
+}
+
+function catUnits(lines, category) {
+  return catLines(lines, category).reduce((n, l) => n + l.qty, 0);
+}
+
+// What this category's existing lines would cost if the pool held `units`. Each line is priced
+// through its own ladder rather than multiplying one price out, since two styles in a category can
+// sit at different prices (belts run $45–$60) and only their tier structure is shared.
+function catSubtotalAt(lines, category, units) {
+  return catLines(lines, category).reduce((s, l) => s + priceFor(l, units) * l.qty, 0);
+}
+
+// Total kept back versus paying the single-unit price for every item in the basket.
+function savingsAgainst(lines) {
+  return lines.reduce((s, l) => s + (priceFor(l, 1) - linePrice(l, lines)) * l.qty, 0);
+}
+
+// Units of a category still on the shelf beyond what the basket already holds. The nudge has to
+// clear this or it would suggest buying a piece that doesn't exist.
+function categoryHeadroom(lines, category) {
+  // `??` not `||`: an absent `stock` means a one-off (1 unit), but an explicit 0 means none left,
+  // and `0 || 1` would quietly turn a sold-out style back into a purchasable unit.
+  const shelf = PRODUCTS.reduce(
+    (n, p) => (p.category === category && p.status !== "sold" ? n + (p.stock ?? 1) : n),
+    0
+  );
+  return shelf - catUnits(lines, category);
+}
+
+// The nearest tier above the current pool that actually lowers what these items cost. Returns null
+// when the category has no ladder, is already at the deepest tier, or the next band saves nothing.
+function nextTierFor(lines, category) {
+  const units = catUnits(lines, category);
+  if (units === 0) return null;
+  const sample = catLines(lines, category)[0];
+  const current = catSubtotalAt(lines, category, units);
+  let best = null;
+  // Ladders are defined per category, so any line in it reports the same bands.
+  tiersFor(sample).forEach((t) => {
+    if (t.minQty <= units) return;
+    const projected = catSubtotalAt(lines, category, t.minQty);
+    if (projected < current && (best === null || t.minQty < best.minQty)) {
+      best = { minQty: t.minQty, need: t.minQty - units, units, current, projected };
+    }
+  });
+  return best;
+}
+
+// Cheapest a buyer could add `need` more units of a category for, at the tier they'd land on. Used
+// only to test the price cliff — whether topping up genuinely costs less than stopping short.
+function cheapestAddCost(category, units, need) {
+  const inStock = PRODUCTS.filter((p) => p.category === category && p.status !== "sold");
+  if (inStock.length === 0) return Infinity;
+  return Math.min(...inStock.map((p) => priceFor(p, units))) * need;
+}
+
+function nudgeHtml(lines, category) {
+  const next = nextTierFor(lines, category);
+  if (next === null) return "";
+  if (categoryHeadroom(lines, category) < next.need) return "";
+
+  const sample = catLines(lines, category)[0];
+  const addCost = cheapestAddCost(category, next.minQty, next.need);
+  // The cliff: topping up to the next band costs no more than the smaller order does today.
+  const cliff = next.projected + addCost <= next.current;
+
+  return `
+        <div class="bulk-nudge${cliff ? " is-cliff" : ""}">
+          <span class="bulk-nudge-icon" aria-hidden="true">${cliff ? "&darr;" : "+"}</span>
+          <span class="bulk-nudge-text">
+            <b>${next.need} more ${bulkPlural(sample, next.need)}</b> unlock${next.need === 1 ? "s" : ""} the ${next.minQty}+ price &mdash;
+            your ${next.units} ${bulkPlural(sample, next.units)} drop${next.units === 1 ? "s" : ""} from ${money(next.current)} to ${money(next.projected)}.
+            ${cliff ? `<em>${next.minQty} would cost ${money(next.projected + addCost)} &mdash; less than the ${next.units} you have now.</em>` : ""}
+          </span>
+        </div>`;
+}
+
+// Savings line plus a nudge per category in the basket. The checkout panel passes withNudge:false —
+// quantities are locked once you're on the payment step, so an offer you can't act on is noise.
+function bulkFeedbackHtml(lines, withNudge = true) {
+  if (lines.length === 0) return "";
+  const parts = [];
+  const saved = savingsAgainst(lines);
+  // Half a cent of float dust shouldn't render a "$0.00 saved" row.
+  if (saved > 0.005) {
+    parts.push(`
+        <div class="bulk-saved">
+          <span>Bulk discount applied</span>
+          <span class="bulk-saved-amount">&minus;${money(saved)}</span>
+        </div>`);
+  }
+  if (withNudge) {
+    [...new Set(lines.map((l) => l.category))].forEach((cat) => parts.push(nudgeHtml(lines, cat)));
+  }
+  return parts.join("");
 }
 
 // Cards, the modal, filters, sorting and the bid all read `p.price`. Pointing that at the qty-1
@@ -984,6 +1100,11 @@ function syncBodyScroll() {
 function checkoutItemRow(line, removable, lines) {
   const sizeLabel = line.size === "One Size" ? "One Size" : `Size ${line.size}`;
   const unitPrice = linePrice(line, lines);
+  // Retail is the reference the discount is legible against. Without it the line just shows a
+  // number that quietly changed when some other style was added to the basket.
+  const retailPrice = priceFor(line, 1);
+  const discounted = retailPrice - unitPrice > 0.005;
+  const tierLabel = discounted ? (tierFor(line, poolUnitsIn(lines, line)) || {}).label : null;
   const max = unitsFor(line, line.size);
   const qtyControl = removable
     ? `<div class="qty-stepper qty-stepper-sm">
@@ -999,9 +1120,10 @@ function checkoutItemRow(line, removable, lines) {
       <div class="checkout-item-info">
         <span class="checkout-item-name">${fullName(line)}</span>
         <span class="checkout-item-meta">${line.category} &middot; ${sizeLabel}</span>
+        ${discounted ? `<span class="checkout-item-tier">${tierLabel || "Bulk"} &middot; ${money(unitPrice)} ea</span>` : ""}
       </div>
       ${qtyControl}
-      <span class="price">${money(unitPrice * line.qty)}</span>
+      <span class="price">${discounted ? `<s class="price-was">${money(retailPrice * line.qty)}</s>` : ""}${money(unitPrice * line.qty)}</span>
       ${removable ? `<button type="button" class="checkout-item-remove" data-line-id="${line.lineId}" aria-label="Remove">&times;</button>` : ""}
     </div>
   `;
@@ -1032,6 +1154,7 @@ function openCheckout(items) {
   const total = subtotal + shipping;
 
   document.getElementById("checkout-items").innerHTML = items.map((p) => checkoutItemRow(p, false, items)).join("");
+  document.getElementById("checkout-bulk-feedback").innerHTML = bulkFeedbackHtml(items, false);
   document.getElementById("checkout-subtotal").textContent = money(subtotal);
   document.getElementById("checkout-shipping").textContent = money(shipping);
   document.getElementById("checkout-ship-note").textContent = `(${(orderWeightOz(items) / 16).toFixed(1)} lb, Ground Advantage)`;
@@ -1245,6 +1368,7 @@ function renderCartItems() {
   checkoutBtn.hidden = cart.length === 0;
 
   wrap.innerHTML = cart.map((p) => checkoutItemRow(p, true, cart)).join("");
+  document.getElementById("cart-bulk-feedback").innerHTML = bulkFeedbackHtml(cart, true);
   const cartSub = lineTotal(cart);
   const cartShip = shippingFor(cart);
   document.getElementById("cart-subtotal").textContent = money(cartSub);

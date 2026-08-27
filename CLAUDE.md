@@ -172,15 +172,41 @@ only category with real bulk pricing. Every other category is still seeded to it
 every tier, so bulk is a no-op there until the owner sets numbers.
 
 Note the price cliff this creates: 9 shirts is $189 but 10 shirts is $180, and 19 is $342 while 20
-is $320. That's inherent to quantity breaks, not a bug, but it means a buyer sitting just under a
-tier is better off adding one more — worth a nudge in the UI eventually.
+is $320. That's inherent to quantity breaks, not a bug. The cart now calls it out — see the
+`is-cliff` nudge above — rather than leaving a buyer to discover it by accident.
 
 `pricing.json` is deliberately **not** in `PRIVATE_FILES` — the browser has to fetch it. That means
 wholesale tiers are publicly readable at `/pricing.json`. If bulk pricing should be private, it has
 to move behind an API that only returns the retail price to anonymous visitors.
 
-**Nothing in the UI shows the bulk tiers yet** — no "5+ for $30" line on the card, no note in the
-cart when a tier kicks in. The math applies at checkout, but a buyer has no way to see it.
+The ladder is surfaced in four places, all reading through `priceFor()` so a promise and a charge
+can never drift apart:
+
+- **Card** — `bulkStripHtml(p)`, the discounted tiers only ("5+ $21.00"). Empty for a category whose
+  tiers all sit at retail, so it costs nothing to leave on every card.
+- **Modal** — `bulkTableHtml(p)`, the full ladder as bands ("1–4 / 5–9 / 10–19 / 20+") plus the retail
+  reference row and the mix-and-match note.
+- **Cart** — `bulkFeedbackHtml(lines, true)`: a "Bulk discount applied −$X" row from
+  `savingsAgainst(lines)`, plus one nudge per category from `nextTierFor(lines, category)`. Each
+  cart line shows the retail figure struck through above the charged one, with the tier that
+  replaced it named beneath.
+- **Checkout** — `bulkFeedbackHtml(items, false)`. Savings only: quantities are locked on the
+  payment step, so an offer the buyer can't act on is noise.
+
+Rules the nudge obeys, all of which have a test in the browser console history:
+
+- It only fires when the next band **actually lowers what the current items cost** —
+  `nextTierFor` compares `catSubtotalAt(lines, cat, t.minQty)` against today's subtotal, so a
+  flat ladder (every category except T-Shirts) produces nothing at all.
+- It never suggests buying stock that doesn't exist: `categoryHeadroom()` must cover the shortfall.
+  That helper uses `p.stock ?? 1`, **not** `|| 1` — absent means one-off, but an explicit `0` means
+  sold out, and `0 || 1` would quietly resurrect a unit.
+- When topping up costs *less* than stopping short — the price cliff, e.g. 9 shirts $189 vs 10 for
+  $180 — it adds the `is-cliff` styling and spells the comparison out. `cheapestAddCost()` decides
+  this by pricing the shortfall at the cheapest in-stock style in that category.
+- Category nouns come from `bulkNoun()`, which falls back to the **singularised** category name
+  ("Belts" → "belt"); `bulkPlural()` re-pluralises. Set `bulkNoun` in `pricing.json` for anything
+  that rule gets wrong.
 
 ## Shipping
 
@@ -314,6 +340,12 @@ Two more things that are invisible everywhere and apply to both builds:
   horizontally scrollable strip — and under 420px the "Follow" wordmark collapses to its icon.
   Before this, a phone viewport pushed the cart and orders buttons off-screen entirely, so they were
   unreachable. Re-check those two buttons stay on-screen after any header change.
+- **Cart rows wrap under 560px.** Thumbnail, name, stepper, price and remove on one flex line left
+  the product name about 52px wide — one word per line, a ~250px-tall row. `.checkout-item` now
+  wraps there, `.checkout-item-info` taking `calc(100% - 56px)` so the controls fall to a second
+  line indented past the thumbnail. Re-check a long product name on a phone after touching that row.
+- The per-line price is a **column**, not two inline figures: side by side, the struck retail price
+  and the charged one nearly double the cell's width, and the row pays for it out of the name.
 - The featured stack positions cards with fixed 320px pose math in JS, so `.stack-wrap` is clipped
   under 820px to stop the spread widening the document. Changing `STACK_CARD_WIDTH` means
   re-checking narrow viewports.
