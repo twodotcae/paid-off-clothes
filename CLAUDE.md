@@ -121,6 +121,67 @@ is authentic and that receipts are provided to buyers after purchase.
 `initTilt()` must be re-called after injecting new `.tilt` markup (`renderProducts` already does).
 Everything is wired up from a single `DOMContentLoaded` handler at the bottom of the file.
 
+## Pricing
+
+Prices live in [pricing.json](pricing.json), **not in code** — the owner edits that file and reloads.
+`PRODUCTS` still carries a price literal, but only as the fallback when a product has no entry.
+
+Three levels, each falling back to the next:
+
+- `products[name]` — per-product prices keyed by tier id, plus an optional `tiers` override.
+  Keyed by the product's **exact `name`** from `PRODUCTS` (not `fullName`), which is the same key
+  the cart and click tracking use. `brand`/`category` in each entry are labels for the human
+  editing the file — the real ones live in `script.js`.
+- `categories[category].tiers` — the quantity ladder for that category. **This is why the system
+  isn't one-size-fits-all**: shirts break at 5/10/20 while shoes break at 3/6/12.
+- `defaultTiers` — used by any category with no entry, so a future category prices itself sensibly
+  before anyone touches the file. `Bags` and `Shorts` are already defined with no products yet.
+
+`priceFor(p, qty)` is the only thing that answers "what does this cost" — it walks the product's
+ladder and returns the highest tier whose `minQty` the quantity reaches *and* which has a price.
+A tier with no price is skipped, so a half-filled entry falls to the tier below it rather than to
+zero. `tierFor(p, qty)` returns which band applied; `linePrice(line, lines)` prices one cart line.
+
+Conventions the rest of the code depends on:
+
+- **Tier prices are per unit, not a package price.** 5 shirts at `smallBulk: 26` is $130.
+- **Quantity is pooled per category, across styles and sizes** — 3 of one tee plus 2 of another is
+  5 shirts, and all 5 bill at the 5+ price. `poolUnitsIn(lines, p)` sums every line sharing the
+  product's `category`, which is the same unit the tier ladder is defined on. Categories never pool
+  into each other: belts in the basket don't move shirts up a tier.
+- **The qualifying price applies to every unit in the category**, including a style contributing a
+  single piece — 9 of one tee plus 1 of another prices all 10 at the 10+ price.
+- **`tierFor` charges the cheapest tier reached, not the deepest.** Since raising quantity only adds
+  tiers to the reached set, taking the minimum makes per-unit price mathematically non-increasing in
+  quantity — a buyer can never pay more per item by buying more, even if a bulk price is later typed
+  in above the retail one. On a correctly descending ladder this picks the same tier either way.
+  `validatePricing()` separately warns when a ladder isn't descending, so the data still gets fixed.
+- `p.price` is overwritten at load with `priceFor(p, 1)`, so every existing read of `p.price`
+  (cards, modal, price filter, sort, the bid's starting price) shows the retail tier without
+  needing to know pricing exists. The literal from `PRODUCTS` stays available as `p.basePrice`.
+- `loadPricing()` must be awaited **before** anything renders a price — it runs first in the
+  `DOMContentLoaded` handler.
+- Opening `index.html` over `file://` can't fetch the JSON; it falls back to the `PRODUCTS` prices
+  and logs a warning. Prices only work properly through `server.py`.
+- `validatePricing()` logs misspelled product keys, non-numeric prices, tier ids that aren't in the
+  ladder, and products with no entry. **Check the console after editing pricing.json** — a typo
+  degrades quietly to the old price rather than breaking the page, so the warning is the only signal.
+
+Current state: shirts are priced $24.99 / $21 / $18 / $16 across the 1 / 5 / 10 / 20 ladder — the
+only category with real bulk pricing. Every other category is still seeded to its original price at
+every tier, so bulk is a no-op there until the owner sets numbers.
+
+Note the price cliff this creates: 9 shirts is $189 but 10 shirts is $180, and 19 is $342 while 20
+is $320. That's inherent to quantity breaks, not a bug, but it means a buyer sitting just under a
+tier is better off adding one more — worth a nudge in the UI eventually.
+
+`pricing.json` is deliberately **not** in `PRIVATE_FILES` — the browser has to fetch it. That means
+wholesale tiers are publicly readable at `/pricing.json`. If bulk pricing should be private, it has
+to move behind an API that only returns the retail price to anonymous visitors.
+
+**Nothing in the UI shows the bulk tiers yet** — no "5+ for $30" line on the card, no note in the
+cart when a tier kicks in. The math applies at checkout, but a buyer has no way to see it.
+
 ## Shipping
 
 Rates are weight-based, configured in the "EDIT THIS: shipping" block at the top of
@@ -198,10 +259,48 @@ Anything real (payments, an admin view, sending mail) needs a proper backend beh
   chevron pattern and the sneaker photo has a Bottega Veneta box in frame, but neither is confirmed
   — do not write a brand into a listing off a photo without the owner saying so.
 - **Pricing** — stock is priced $28–$75, but the stated positioning is designer at plain-tee prices.
-  Repricing pass still outstanding.
+  Repricing pass still outstanding. The mechanism is now in place (see Pricing above); every tier is
+  seeded to the current price, so the numbers themselves are what's left to decide.
 - **Authenticity proof is post-purchase only.** At these prices buyers will assume counterfeit, so
   the site should explain the subsidy and the receipt guarantee up front; nothing on the page does
   that yet.
+
+## Mobile performance
+
+Everything expensive about the visual treatment is GPU compositing, not JS or image weight — JS
+renders in ~1ms and the product photos are already well compressed (re-encoding them makes them
+*larger*; only `logo.png`/`skyline.png` benefited, and those ship as lossless, pixel-identical WebP
+with the PNGs kept as fallbacks).
+
+A single `@media (hover: none)` block at the **end of styles.css** turns off the four costly effects
+on touch devices. It's gated on hover, not width, so a desktop browser at any window size keeps
+everything; a phone gets none of it. What it drops, and why:
+
+- `.noise` — a viewport-sized `mix-blend-mode: overlay` layer forces the whole page to re-composite
+  through a blend every frame.
+- every `backdrop-filter` — the sticky header and fixed footer re-blur their backdrop on each scroll
+  frame. Each background's **opacity steps up** to replace the separation the blur provided, so the
+  colour reads the same.
+- the skyline drift — the two bands are 192k and 383k pixels of permanently animating layer, so the
+  GPU never idles. The city stays put and keeps its opacity; only the motion stops.
+- `.tilt` — driven entirely by `mousemove`, which a touch screen never fires, so it renders nothing
+  while `will-change` pins all 45 `.tilt` elements onto their own layers. `initTilt()` has a
+  matching `(hover: none)` bail-out so the listeners and glow divs aren't created either.
+
+Net effect on a phone: **55 promoted layers / 5.09 megapixels → 8 / 0.56.**
+
+`introOncePerSession()` adds the same gate to the reveal: desktop replays it on every load
+(`INTRO_ONCE_PER_SESSION` stays `false`), touch devices play it once per session. The animation
+itself is unchanged.
+
+Two more things that are invisible everywhere and apply to both builds:
+
+- **`server.py` caches images.** Blanket `no-store` meant a phone re-downloaded ~424KB of unchanged
+  photos on every load. Images now send `no-cache` — kept and revalidated, so they come back as
+  bodyless 304s — while markup, code and JSON stay `no-store` so edits appear immediately.
+- **Fonts are linked from `index.html`, never `@import`ed.** An `@import` at the top of a stylesheet
+  serialises the load three round trips deep before brand text can paint. Keep the `preconnect`
+  tags next to them.
 
 ## Style
 

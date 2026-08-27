@@ -4,13 +4,28 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Paid Off Clothes — Curated Resale</title>
-<link rel="stylesheet" href="styles.css?v=23" />
+<!-- Fonts were @import'ed from the top of styles.css, which serialises the load: the browser
+     had to fetch styles.css, parse it, only then discover the Google CSS, fetch that, parse it,
+     and only then start the .woff2 files — three round trips deep before brand text could
+     paint. Linking here starts the font CSS in parallel with styles.css, and preconnect warms
+     the DNS/TLS handshake to both hosts ahead of time. Same fonts, same display=swap. -->
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=JetBrains+Mono:wght@400;500&display=swap" />
+<link rel="stylesheet" href="styles.css?v=47" />
 </head>
 <body>
 
 <div class="noise" aria-hidden="true"></div>
 
-<!-- opening logo reveal — sits above the email gate (z 1000) and unmounts itself when done -->
+<!-- site backdrop — the same drifting city as the intro, pinned behind the page -->
+<div class="city-bg city-bg-page" aria-hidden="true">
+  <span class="city-sky city-sky-far"></span>
+  <span class="city-sky city-sky-near"></span>
+  <span class="city-horizon"></span>
+</div>
+
+<!-- opening logo reveal — sits above everything and unmounts itself when done -->
 <div class="intro" id="intro">
   <div class="intro-bg" aria-hidden="true">
     <span class="intro-sky intro-sky-far"></span>
@@ -18,34 +33,22 @@
     <span class="intro-horizon"></span>
   </div>
   <div class="intro-stage">
-    <img src="images/logo.png?v=2" alt="Paid Off Clothes" class="intro-logo" />
+    <!-- Lossless WebP: byte-for-byte the same pixels as the PNG at 54% of the weight (131K -> 60K),
+         and this is the one image needed immediately. The PNG stays as the fallback source. -->
+    <picture>
+      <source srcset="images/logo.webp?v=1" type="image/webp" />
+      <img src="images/logo.png?v=2" alt="Paid Off Clothes" class="intro-logo" width="700" height="452" fetchpriority="high" />
+    </picture>
   </div>
   <!-- sibling of the stage, not a child, so the sweep crosses the viewport instead of spinning -->
   <span class="intro-sheen" aria-hidden="true"></span>
   <button type="button" class="intro-skip" id="intro-skip">Skip</button>
 </div>
 
-<!-- email gate — blocks the site until an email is captured. Welcome email + drop
-     announcements go out via Resend later; this just persists the signup for now. -->
-<div class="gate-overlay" id="gate-overlay">
-  <div class="gate-card">
-    <p class="eyebrow">Paid Off Clothes</p>
-    <h2>get the drop.</h2>
-    <p class="gate-note">Drop your email to get in — plus first word on new stock, restocks, and the weekly bid before anyone else.</p>
-    <form id="gate-form">
-      <div class="form-field">
-        <label for="gate-email">Email</label>
-        <input type="email" id="gate-email" placeholder="you@example.com" required autocomplete="email" />
-      </div>
-      <button type="submit" class="btn btn-primary tilt" data-tilt-max="6" id="gate-submit-btn">Get Access</button>
-    </form>
-    <p class="gate-error" id="gate-error" hidden></p>
-  </div>
-</div>
 
 <header class="site-header">
   <div class="wrap header-inner">
-    <a href="#" class="logo">PAID OFF CLOTHES<span class="dot">.</span></a>
+    <a href="#" class="logo" aria-label="Paid Off Clothes">PAIDOFFCLOTHES<span class="dot">.</span></a>
     <nav class="nav">
       <a href="#stock" class="nav-link tilt" data-tilt-max="6">Stock</a>
       <a href="#bid" class="nav-link tilt" data-tilt-max="6">Bid of the Week</a>
@@ -195,7 +198,26 @@
   </div>
 </section>
 
-
+<!-- optional newsletter signup — the old email gate's form, now an ordinary section that nothing
+     depends on. Posts to the same /api/subscribe; skipping it costs the visitor nothing. -->
+<section id="signup" class="signup">
+  <div class="wrap">
+    <div class="signup-card">
+      <p class="eyebrow">Paid Off Clothes</p>
+      <h2>get the drop.</h2>
+      <p class="signup-note">First word on new stock, restocks, and the weekly bid before anyone else. Optional — the whole store is open either way.</p>
+      <form id="signup-form">
+        <div class="form-field">
+          <label for="signup-email">Email</label>
+          <input type="email" id="signup-email" placeholder="you@example.com" required autocomplete="email" />
+        </div>
+        <button type="submit" class="btn btn-primary tilt" data-tilt-max="6" id="signup-submit-btn">Sign Up</button>
+      </form>
+      <p class="signup-msg" id="signup-error" hidden></p>
+      <p class="signup-msg signup-ok" id="signup-success" hidden>You're on the list.</p>
+    </div>
+  </div>
+</section>
 
 <!-- single fixed footer: cycles one buyer vouch at a time, brand line beneath -->
 <footer class="site-footer" id="vouch-footer">
@@ -226,6 +248,8 @@
         <span class="qty-max" id="qty-max"></span>
       </div>
       <p class="modal-desc" id="modal-desc"></p>
+      <!-- quantity pricing — filled by script.js, empty for anything with no bulk discount -->
+      <div id="modal-bulk"></div>
       <div class="modal-foot">
         <div class="price-block">
           <span class="price" id="modal-price"></span>
@@ -417,6 +441,6 @@
 
 
 
-<script src="script.js?v=23"></script>
+<script src="script.js?v=47"></script>
 </body>
 </html>

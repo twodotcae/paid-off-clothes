@@ -1,0 +1,391 @@
+{
+  "_README": [
+    "Pricing for Paid Off Clothes. Edit this file to change prices — no code changes needed.",
+    "Save the file and reload the site; the storefront reads it on every page load.",
+    "",
+    "TIERS decide which price applies at a given quantity. Each tier has a minQty, and the",
+    "highest tier whose minQty the buyer reaches wins. Tiers are per CATEGORY, so shoes can use",
+    "completely different quantity breaks than shirts. A single product may override both its",
+    "tier ladder and its prices under 'products'.",
+    "",
+    "Quantity is counted per style across sizes: 3 medium + 2 large of one tee is 5 pieces.",
+    "",
+    "Prices are per single item at that tier — NOT a package price. If shirts are $32 each at",
+    "retail and $26 each once you buy 5, then retail=32 and smallBulk=26.",
+    "",
+    "Every tier below is currently seeded to the product's existing price, so nothing has",
+    "changed yet. Lower the bulk numbers when you're ready.",
+    "",
+    "Adding a category: add it under 'categories' with its own tiers. Anything not listed",
+    "falls back to 'defaultTiers'. (To also show it on the site, add it to CATEGORIES in",
+    "script.js — that's the storefront nav, separate from pricing.)",
+    "Adding a product: add it under 'products' keyed by its exact name from script.js.",
+    "A product with no entry here falls back to its category tiers and its script.js price."
+  ],
+  "defaultTiers": [
+    {
+      "id": "retail",
+      "label": "Single",
+      "minQty": 1
+    },
+    {
+      "id": "smallBulk",
+      "label": "Small bulk",
+      "minQty": 5
+    },
+    {
+      "id": "bulk",
+      "label": "Bulk",
+      "minQty": 10
+    },
+    {
+      "id": "largeBulk",
+      "label": "Large bulk",
+      "minQty": 20
+    }
+  ],
+  "categories": {
+    "T-Shirts": {
+      "bulkNoun": "shirt",
+      "tiers": [
+        {
+          "id": "retail",
+          "label": "Single",
+          "minQty": 1
+        },
+        {
+          "id": "smallBulk",
+          "label": "Small bulk",
+          "minQty": 5
+        },
+        {
+          "id": "bulk",
+          "label": "Bulk",
+          "minQty": 10
+        },
+        {
+          "id": "largeBulk",
+          "label": "Large bulk",
+          "minQty": 20
+        }
+      ]
+    },
+    "Shorts": {
+      "tiers": [
+        {
+          "id": "retail",
+          "label": "Single",
+          "minQty": 1
+        },
+        {
+          "id": "smallBulk",
+          "label": "Small bulk",
+          "minQty": 5
+        },
+        {
+          "id": "bulk",
+          "label": "Bulk",
+          "minQty": 10
+        },
+        {
+          "id": "largeBulk",
+          "label": "Large bulk",
+          "minQty": 20
+        }
+      ]
+    },
+    "Belts": {
+      "tiers": [
+        {
+          "id": "retail",
+          "label": "Single",
+          "minQty": 1
+        },
+        {
+          "id": "smallBulk",
+          "label": "Small bulk",
+          "minQty": 4
+        },
+        {
+          "id": "bulk",
+          "label": "Bulk",
+          "minQty": 8
+        },
+        {
+          "id": "largeBulk",
+          "label": "Large bulk",
+          "minQty": 16
+        }
+      ]
+    },
+    "Shoes": {
+      "tiers": [
+        {
+          "id": "retail",
+          "label": "Single",
+          "minQty": 1
+        },
+        {
+          "id": "smallBulk",
+          "label": "Small bulk",
+          "minQty": 3
+        },
+        {
+          "id": "bulk",
+          "label": "Bulk",
+          "minQty": 6
+        },
+        {
+          "id": "largeBulk",
+          "label": "Large bulk",
+          "minQty": 12
+        }
+      ]
+    },
+    "Backpacks": {
+      "tiers": [
+        {
+          "id": "retail",
+          "label": "Single",
+          "minQty": 1
+        },
+        {
+          "id": "smallBulk",
+          "label": "Small bulk",
+          "minQty": 3
+        },
+        {
+          "id": "bulk",
+          "label": "Bulk",
+          "minQty": 6
+        },
+        {
+          "id": "largeBulk",
+          "label": "Large bulk",
+          "minQty": 12
+        }
+      ]
+    },
+    "Bags": {
+      "tiers": [
+        {
+          "id": "retail",
+          "label": "Single",
+          "minQty": 1
+        },
+        {
+          "id": "smallBulk",
+          "label": "Small bulk",
+          "minQty": 3
+        },
+        {
+          "id": "bulk",
+          "label": "Bulk",
+          "minQty": 6
+        },
+        {
+          "id": "largeBulk",
+          "label": "Large bulk",
+          "minQty": 12
+        }
+      ]
+    }
+  },
+  "products": {
+    "Backpack — Black": {
+      "category": "Backpacks",
+      "prices": {
+        "retail": 70.0,
+        "smallBulk": 70.0,
+        "bulk": 70.0,
+        "largeBulk": 70.0
+      }
+    },
+    "Backpack — Brown": {
+      "category": "Backpacks",
+      "prices": {
+        "retail": 70.0,
+        "smallBulk": 70.0,
+        "bulk": 70.0,
+        "largeBulk": 70.0
+      }
+    },
+    "Backpack — Green": {
+      "category": "Backpacks",
+      "prices": {
+        "retail": 70.0,
+        "smallBulk": 70.0,
+        "bulk": 70.0,
+        "largeBulk": 70.0
+      }
+    },
+    "Black Belt — Black Hardware": {
+      "brand": "Louis Vuitton",
+      "category": "Belts",
+      "prices": {
+        "retail": 55.0,
+        "smallBulk": 55.0,
+        "bulk": 55.0,
+        "largeBulk": 55.0
+      }
+    },
+    "Black Belt — Silver Hardware": {
+      "brand": "Louis Vuitton",
+      "category": "Belts",
+      "prices": {
+        "retail": 55.0,
+        "smallBulk": 55.0,
+        "bulk": 55.0,
+        "largeBulk": 55.0
+      }
+    },
+    "Black Cross Buckle Belt": {
+      "brand": "Chrome Hearts",
+      "category": "Belts",
+      "prices": {
+        "retail": 45.0,
+        "smallBulk": 45.0,
+        "bulk": 45.0,
+        "largeBulk": 45.0
+      }
+    },
+    "Black Monogram Belt": {
+      "brand": "Louis Vuitton",
+      "category": "Belts",
+      "prices": {
+        "retail": 50.0,
+        "smallBulk": 50.0,
+        "bulk": 50.0,
+        "largeBulk": 50.0
+      }
+    },
+    "Embossed Black Belt": {
+      "brand": "Louis Vuitton",
+      "category": "Belts",
+      "prices": {
+        "retail": 50.0,
+        "smallBulk": 50.0,
+        "bulk": 50.0,
+        "largeBulk": 50.0
+      }
+    },
+    "Multicolor Monogram Belt": {
+      "brand": "Louis Vuitton",
+      "category": "Belts",
+      "prices": {
+        "retail": 60.0,
+        "smallBulk": 60.0,
+        "bulk": 60.0,
+        "largeBulk": 60.0
+      }
+    },
+    "White Buckle Belt — Style 1": {
+      "brand": "Chrome Hearts",
+      "category": "Belts",
+      "prices": {
+        "retail": 45.0,
+        "smallBulk": 45.0,
+        "bulk": 45.0,
+        "largeBulk": 45.0
+      }
+    },
+    "White Buckle Belt — Style 3": {
+      "brand": "Chrome Hearts",
+      "category": "Belts",
+      "prices": {
+        "retail": 45.0,
+        "smallBulk": 45.0,
+        "bulk": 45.0,
+        "largeBulk": 45.0
+      }
+    },
+    "White Monogram Belt": {
+      "brand": "Louis Vuitton",
+      "category": "Belts",
+      "prices": {
+        "retail": 50.0,
+        "smallBulk": 50.0,
+        "bulk": 50.0,
+        "largeBulk": 50.0
+      }
+    },
+    "White Oval Buckle Belt": {
+      "brand": "Chrome Hearts",
+      "category": "Belts",
+      "prices": {
+        "retail": 45.0,
+        "smallBulk": 45.0,
+        "bulk": 45.0,
+        "largeBulk": 45.0
+      }
+    },
+    "Black / White Runner": {
+      "category": "Shoes",
+      "prices": {
+        "retail": 75.0,
+        "smallBulk": 75.0,
+        "bulk": 75.0,
+        "largeBulk": 75.0
+      }
+    },
+    "Silver / White Runner": {
+      "category": "Shoes",
+      "prices": {
+        "retail": 75.0,
+        "smallBulk": 75.0,
+        "bulk": 75.0,
+        "largeBulk": 75.0
+      }
+    },
+    "3D Logo Tee": {
+      "brand": "Amiri",
+      "category": "T-Shirts",
+      "prices": {
+        "retail": 24.99,
+        "smallBulk": 21.0,
+        "bulk": 18.0,
+        "largeBulk": 16.0
+      }
+    },
+    "Graphic Tee — Style 1": {
+      "brand": "That's An Awful Lot Of Cough Syrup",
+      "category": "T-Shirts",
+      "prices": {
+        "retail": 24.99,
+        "smallBulk": 21.0,
+        "bulk": 18.0,
+        "largeBulk": 16.0
+      }
+    },
+    "Graphic Tee — Style 2": {
+      "brand": "That's An Awful Lot Of Cough Syrup",
+      "category": "T-Shirts",
+      "prices": {
+        "retail": 24.99,
+        "smallBulk": 21.0,
+        "bulk": 18.0,
+        "largeBulk": 16.0
+      }
+    },
+    "Graphic Tee — Style 3": {
+      "brand": "That's An Awful Lot Of Cough Syrup",
+      "category": "T-Shirts",
+      "prices": {
+        "retail": 24.99,
+        "smallBulk": 21.0,
+        "bulk": 18.0,
+        "largeBulk": 16.0
+      }
+    },
+    "Logo Tee": {
+      "brand": "Amiri",
+      "category": "T-Shirts",
+      "prices": {
+        "retail": 24.99,
+        "smallBulk": 21.0,
+        "bulk": 18.0,
+        "largeBulk": 16.0
+      }
+    }
+  }
+}

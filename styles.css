@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=JetBrains+Mono:wght@400;500&display=swap');
+/* Fonts are linked from index.html <head> instead of @import'ed here — see the note there. */
 
 :root {
   --black: #0a0a0b;
@@ -13,6 +13,13 @@
   --white: #f5f5f7;
   --glow: rgba(255,255,255,0.10);
   --radius: 14px;
+  /* Height of the fixed footer. The body's bottom padding and the page skyline both key off this,
+     so the three stay in step — see the 560px override below. */
+  --footer-h: 92px;
+}
+
+@media (max-width: 560px) {
+  :root { --footer-h: 104px; }
 }
 
 * { box-sizing: border-box; }
@@ -45,29 +52,116 @@ body {
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
 }
 
-/* ---------- email gate ---------- */
-.gate-overlay {
-  position: fixed;
-  inset: 0;
-  z-index: 1000;
-  background: var(--black);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 24px;
-}
-.gate-overlay[hidden] { display: none; }
+/* ---------- newsletter signup ----------
+   Was a full-screen gate at z-index 1000 that blocked the store until an email was entered. It is
+   now an ordinary section near the foot of the page — same card, same form, no overlay, nothing
+   gated behind it. */
+.signup { padding: 10px 0 70px; }
 
-.gate-card { width: 100%; max-width: 420px; text-align: center; }
-.gate-card h2 {
-  font-size: clamp(32px, 6vw, 44px);
-  line-height: 1;
-  margin: 14px 0 14px;
+.signup-card {
+  max-width: 420px;
+  margin: 0 auto;
+  padding: 32px 28px;
+  text-align: center;
+  background: linear-gradient(160deg, var(--gray-950), var(--charcoal));
+  border: 1px solid var(--gray-900);
+  border-radius: var(--radius);
 }
-.gate-note { color: var(--gray-300); font-size: 14px; line-height: 1.6; margin: 0 0 28px; }
-.gate-card form { display: flex; flex-direction: column; gap: 14px; text-align: left; }
-.gate-card .form-field { margin: 0; }
-.gate-error { color: #ff6b6b; font-size: 13px; margin: 14px 0 0; }
+.signup-card h2 {
+  font-size: clamp(28px, 5vw, 36px);
+  line-height: 1;
+  margin: 12px 0 12px;
+}
+.signup-note { color: var(--gray-300); font-size: 14px; line-height: 1.6; margin: 0 0 24px; }
+.signup-card form { display: flex; flex-direction: column; gap: 14px; text-align: left; }
+.signup-card .form-field { margin: 0; }
+.signup-msg { color: #ff6b6b; font-size: 13px; margin: 14px 0 0; }
+.signup-msg.signup-ok { color: var(--gray-100); }
+
+/* ---------- drifting city backdrop ----------
+   The same skyline artwork the intro uses (images/skyline.png), but looping instead of settling, so
+   the city the reveal opens on never actually stops moving.
+
+   Each band translates left by exactly one tile width, which is what makes the wrap invisible: the
+   art is 672x152, so a band H tall repeats every 4.421H (88.42vh at 20vh, 132.63vh at 30vh). The
+   near band covers more ground per second than the far one, which is the parallax. Transform-only,
+   so the loop stays on the compositor instead of repainting the page underneath it. */
+.city-bg {
+  overflow: hidden;
+  pointer-events: none;
+}
+
+/* Behind the site: pinned to the viewport just above the fixed footer, so the skyline stays put
+   and keeps drifting while the page scrolls over it. z-index -1 puts it under the page's content
+   but still above the body background — at 0 it would paint over the in-flow text instead. */
+.city-bg-page {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: var(--footer-h);
+  height: 42vh;
+  z-index: -1;
+}
+
+.city-sky {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  /* Plain url() first so a browser without image-set() still gets the PNG; the image-set()
+     line below overrides it where supported, serving a lossless (pixel-identical) WebP at
+     44% of the size. Both skyline layers and the intro read this. */
+  background-image: url("images/skyline.png?v=1");
+  background-image: image-set(url("images/skyline.webp?v=1") type("image/webp"),
+                              url("images/skyline.png?v=1") type("image/png"));
+  background-repeat: repeat-x;
+  background-position: left bottom;
+  background-size: auto 100%;
+  will-change: transform;
+}
+
+/* Each band is one tile wider than the viewport and slides exactly that tile, so at the end of the
+   cycle its right edge lands on the viewport's — any narrower and a bare strip opens up there,
+   since the tile is sized off viewport *height* while the overhang comes from *width*. The +2px is
+   slack against sub-pixel rounding. */
+.city-sky-far {
+  height: 20vh;
+  width: calc(100% + 88.4211vh + 2px);
+  opacity: 0.12;
+  animation: city-drift-far 60s linear infinite;
+}
+
+.city-sky-near {
+  height: 30vh;
+  width: calc(100% + 132.6316vh + 2px);
+  opacity: 0.2;
+  animation: city-drift-near 40s linear infinite;
+}
+
+/* Faint glow where the city meets the sky — matches the intro's horizon. */
+.city-horizon {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 42vh;
+  background: radial-gradient(70% 100% at 50% 100%, rgba(120,150,220,0.13) 0%, transparent 70%);
+}
+
+@keyframes city-drift-far {
+  from { transform: translate3d(0, 0, 0); }
+  to   { transform: translate3d(-88.4211vh, 0, 0); }
+}
+
+@keyframes city-drift-near {
+  from { transform: translate3d(0, 0, 0); }
+  to   { transform: translate3d(-132.6316vh, 0, 0); }
+}
+
+/* Keep the city, drop the drift — same call the intro makes. */
+@media (prefers-reduced-motion: reduce) {
+  .city-sky-far,
+  .city-sky-near { animation: none; }
+}
 
 ::selection { background: var(--gray-700); color: var(--white); }
 
@@ -592,15 +686,21 @@ h1, h2, h3 { font-weight: 700; letter-spacing: -0.02em; margin: 0; }
   gap: 18px;
 }
 
+/* Column flex so the price row can be pinned to the bottom. Grid rows stretch every card to the
+   tallest in the row, and once shirts carry a bulk strip their neighbours gain ~86px of slack —
+   without this the shorter card's price and Details button float mid-card above a dead gap. */
 .card {
   position: relative;
   background: linear-gradient(160deg, var(--gray-950), var(--charcoal));
   border: 1px solid var(--gray-900);
   border-radius: var(--radius);
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 
 .card-media {
+  flex: none;                /* keep the 4:5 photo box exact when the card is stretched */
   aspect-ratio: 4 / 5;
   background: repeating-linear-gradient(135deg, var(--gray-900) 0px, var(--gray-900) 2px, var(--gray-950) 2px, var(--gray-950) 14px);
   position: relative;
@@ -645,7 +745,7 @@ h1, h2, h3 { font-weight: 700; letter-spacing: -0.02em; margin: 0; }
 .tag.sold { color: var(--gray-500); }
 .tag.available { color: var(--white); border-color: var(--gray-700); }
 
-.card-body { padding: 16px 18px 18px; }
+.card-body { padding: 16px 18px 18px; flex: 1; display: flex; flex-direction: column; }
 
 .card-title {
   font-size: 13px;
@@ -663,7 +763,9 @@ h1, h2, h3 { font-weight: 700; letter-spacing: -0.02em; margin: 0; }
   margin: 0 0 14px;
 }
 
-.card-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+/* margin-top:auto pins the price row (and the bulk strip under it) to the bottom of the card, so
+   every card in a stretched row lines its pricing up on the same baseline. */
+.card-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: auto; }
 .price { font-family: 'JetBrains Mono', monospace; font-size: 15px; font-weight: 500; color: var(--white); }
 
 .price-block { display: flex; flex-direction: column; gap: 2px; }
@@ -672,6 +774,104 @@ h1, h2, h3 { font-weight: 700; letter-spacing: -0.02em; margin: 0; }
   font-size: 10px;
   text-transform: uppercase;
   letter-spacing: 0.05em;
+  color: var(--gray-500);
+}
+
+/* ---------- bulk pricing ----------
+   Rendered only for products whose tiers actually beat the single price, so today this appears on
+   shirts and nowhere else — no category check in the CSS or the markup.
+
+   The card strip is deliberately quiet: mono type at the stock-note size, one hairline rule to
+   separate it from the price row. It has to read as a footnote to the price, not compete with it. */
+.bulk-strip {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--gray-900);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.bulk-strip-label {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--gray-500);
+}
+
+/* Wraps rather than overflowing — at the 200px minimum card width three tiers won't fit on one
+   line, and a card must never push its own content sideways. */
+.bulk-strip-tiers {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.bulk-tier {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  line-height: 1;
+  color: var(--gray-300);
+  background: var(--gray-900);
+  border: 1px solid var(--gray-800);
+  border-radius: 999px;
+  padding: 4px 7px;
+  white-space: nowrap;
+}
+
+.bulk-tier b {
+  color: var(--white);
+  font-weight: 500;
+  margin-right: 4px;
+}
+
+/* Modal version: the full ladder including the retail row, so the saving is legible as a ladder. */
+.bulk-table {
+  margin: 0 0 18px;
+  padding: 14px 16px;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid var(--gray-900);
+  border-radius: var(--radius);
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.bulk-table-head {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--gray-500);
+  margin-bottom: 2px;
+}
+
+.bulk-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  color: var(--white);
+}
+
+/* The retail band is the reference point, not an offer — kept a step back from the discounts. */
+.bulk-row.is-retail { color: var(--gray-300); }
+
+.bulk-row-qty { color: var(--gray-300); }
+.bulk-row.is-retail .bulk-row-qty { color: var(--gray-500); }
+
+.bulk-row-price { font-weight: 500; white-space: nowrap; }
+.bulk-row-price i { font-style: normal; font-size: 10px; color: var(--gray-500); }
+
+.bulk-note {
+  margin-top: 4px;
+  padding-top: 9px;
+  border-top: 1px solid var(--gray-900);
+  font-size: 11px;
+  line-height: 1.5;
   color: var(--gray-500);
 }
 
@@ -857,10 +1057,6 @@ h1, h2, h3 { font-weight: 700; letter-spacing: -0.02em; margin: 0; }
 .modal-foot { margin-top: auto; display: flex; align-items: center; justify-content: space-between; gap: 14px; flex-wrap: wrap; }
 .modal-foot .price { font-size: 20px; }
 .modal-actions { display: flex; gap: 10px; flex-wrap: wrap; }
-
-@media (max-width: 560px) {
-  .modal { grid-template-columns: 1fr; }
-}
 
 /* ---------- checkout modal (front-end mock, no processor wired up) ---------- */
 .checkout-modal { grid-template-columns: 1fr; max-width: 480px; max-height: 94vh; }
@@ -1183,7 +1379,6 @@ h1, h2, h3 { font-weight: 700; letter-spacing: -0.02em; margin: 0; }
   .tilt { transition: none; transform: none !important; }
 }
 
-
 /* ---------- brand line (designer name, shown above every product title) ---------- */
 .card-brand,
 .stack-brand {
@@ -1210,7 +1405,6 @@ h1, h2, h3 { font-weight: 700; letter-spacing: -0.02em; margin: 0; }
   text-transform: none;
   letter-spacing: 0.04em;
 }
-
 
 /* ---------- per-size availability pills (item modal) ---------- */
 .modal-sizes {
@@ -1255,7 +1449,6 @@ h1, h2, h3 { font-weight: 700; letter-spacing: -0.02em; margin: 0; }
 @media (prefers-reduced-motion: reduce) {
   .size-pill { transition: none; }
 }
-
 
 /* ---------- quantity stepper (item modal + cart rows) ---------- */
 .qty-row {
@@ -1328,7 +1521,6 @@ h1, h2, h3 { font-weight: 700; letter-spacing: -0.02em; margin: 0; }
   .qty-stepper button { transition: none; }
 }
 
-
 /* ---------- subtotal / shipping rows above the order total ---------- */
 .checkout-subtotal-row {
   display: flex;
@@ -1358,7 +1550,6 @@ h1, h2, h3 { font-weight: 700; letter-spacing: -0.02em; margin: 0; }
 @media (max-width: 560px) {
   .form-row-3 { grid-template-columns: 1fr; }
 }
-
 
 /* ---------- responsive header ----------
    The header is one flex row of logo + nav + cart/orders + follow, which needs ~676px. Below that
@@ -1414,7 +1605,6 @@ h1, h2, h3 { font-weight: 700; letter-spacing: -0.02em; margin: 0; }
   .header-icon-btn { width: 34px; height: 34px; }
 }
 
-
 /* Scroll stays locked behind the intro so the page can't be moved before it clears. */
 body.intro-playing { overflow: hidden; }
 
@@ -1426,13 +1616,13 @@ body.intro-playing { overflow: hidden; }
   left: 0;
   right: 0;
   bottom: 0;
-  z-index: 95;               /* under the header (100), the gate (1000) and the intro (2000) */
+  z-index: 95;               /* under the header (100) and the intro (2000) */
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   gap: 3px;
-  height: 92px;
+  height: var(--footer-h);
   padding: 0 24px;
   overflow: hidden;
   background: rgba(10,10,11,0.92);
@@ -1441,7 +1631,7 @@ body.intro-playing { overflow: hidden; }
 }
 
 /* Keeps page content clear of the fixed footer instead of running underneath it. */
-body { padding-bottom: 92px; }
+body { padding-bottom: var(--footer-h); }
 
 .vouch-rotator {
   position: relative;
@@ -1492,8 +1682,7 @@ body { padding-bottom: 92px; }
 }
 
 @media (max-width: 560px) {
-  .site-footer { height: 104px; }
-  body { padding-bottom: 104px; }
+  /* height/padding follow --footer-h, overridden for this breakpoint up in :root */
   .vouch-rotator { height: 52px; }
   .vouch-item { flex-direction: column; gap: 3px; }
   .vouch-quote { font-size: 0.98rem; }
@@ -1505,7 +1694,7 @@ body { padding-bottom: 92px; }
 }
 
 /* ---------- opening logo reveal ----------
-   Above the email gate's z-index 1000 so it plays before anything else is reachable.
+   Sits above every other layer so it plays before anything else is reachable.
    Everything animates transform/opacity only — no blur or filter — so the whole sequence stays on
    the compositor and doesn't hitch mid-spin. */
 .intro {
@@ -1542,7 +1731,12 @@ body { padding-bottom: 92px; }
   bottom: 0;
   left: -20%;
   width: 160%;
+  /* Plain url() first so a browser without image-set() still gets the PNG; the image-set()
+     line below overrides it where supported, serving a lossless (pixel-identical) WebP at
+     44% of the size. Both skyline layers and the intro read this. */
   background-image: url("images/skyline.png?v=1");
+  background-image: image-set(url("images/skyline.webp?v=1") type("image/webp"),
+                              url("images/skyline.png?v=1") type("image/png"));
   background-repeat: repeat-x;
   background-position: left bottom;
   will-change: transform;
@@ -1675,4 +1869,165 @@ body { padding-bottom: 92px; }
   .intro-sky-near,
   .intro-horizon { animation: none; }
   .intro-skip { animation: none; }
+}
+
+/* ---------- product modal on phones ----------
+   Desktop is untouched: everything here is inside the same 560px breakpoint that already stacks the
+   modal into one column.
+
+   The image was eating the screen. Two separate problems:
+
+   1. `.modal-media` sized itself with `aspect-ratio: 4/5` and no height. Inside the modal's
+      max-height scroll container that row resolved to 0px while the element still painted ~438px
+      tall, so the title, sizes, price and bulk table were drawn ON TOP of the photo. Giving the
+      media a definite height puts it back in its own row.
+   2. Even laid out correctly, 4:5 of a 350px column is 438px — over half a 824px screen before any
+      purchasing information appears.
+
+   A definite height fixes both. `object-fit: contain` then shows the whole product rather than the
+   centre crop `cover` was taking, which is what keeps the full image visible at the smaller size. */
+@media (max-width: 560px) {
+  /* Use nearly the whole screen. At 92vh the modal's scroll box cut off Add to Cart on a 812px
+     phone even though the button had rendered — the extra ~40px here is what un-clips it without
+     taking anything back off the image.
+
+     dvh, not vh: on iOS Safari `vh` is the LARGE viewport — the height the page would have if the
+     URL bar were hidden. With the bars actually showing, a 100vh modal is taller than the screen
+     really is, and the bottom of it (Add to Cart) sits under the toolbar. `dvh` tracks the visible
+     viewport as the bars come and go. The vh line stays first as the fallback for browsers without
+     dvh, where the two are equivalent anyway. */
+  .modal {
+    grid-template-columns: 1fr;
+    max-height: calc(100vh - 16px);
+    max-height: calc(100dvh - 16px);
+  }
+
+  /* Reclaim the screen edges — 8px instead of 24px gives the modal 32px more width and height.
+     The bottom pad also clears the home indicator on notched iPhones, which overlays the last
+     ~34px; without it the buy buttons can end up underneath it. */
+  .modal-overlay {
+    padding: 8px;
+    padding-bottom: max(8px, env(safe-area-inset-bottom));
+  }
+
+  .modal-media {
+    aspect-ratio: auto;              /* the 4:5 box is what collapsed the grid row */
+    /* dvh for the same reason as the modal: this stays 33% of the height actually on screen, so
+       the image keeps its proportion instead of quietly eating the buy buttons' room when Safari's
+       toolbars are up. Identical to 33vh wherever there are no dynamic toolbars.
+
+       The `min()` is what makes Add to Cart survive a short screen. Everything below the image —
+       title through buy buttons — needs about 518px, so on a viewport with room to spare the image
+       is simply 33% of it, and only when the screen is too short does it give way rather than
+       pushing the buttons out of the modal's scroll box. On a 812px iPhone with the toolbars
+       hidden nothing changes; with them showing, the image yields ~50px instead of the buttons. */
+    height: 33vh;                    /* fallback: browsers without dvh get the flat 33% */
+    height: min(33dvh, calc(100dvh - 549px));
+    min-height: 165px;               /* never collapse — a short screen still shows the product */
+    max-height: 320px;
+  }
+
+  /* contain, not cover: the whole piece stays visible and undistorted in the shorter box. The
+     striped placeholder background fills the letterbox, so it reads as intentional. */
+  .modal-media img { object-fit: contain; }
+
+  /* 26px of bottom padding keeps the last block clear of the modal's rounded bottom edge. */
+  .modal-body { padding: 16px 18px 26px; }
+  .modal-body h3 { font-size: 19px; margin: 6px 0 3px; }
+  .modal-body .card-meta { margin-bottom: 8px; }
+  .modal-desc { font-size: 13px; margin: 0 0 12px; }
+
+  .modal-sizes { gap: 7px; margin: 6px 0 2px; }
+
+  /* Sizes and quantity are the two things a thumb has to hit, so they get BIGGER here, not
+     smaller — 36px tall clears the comfortable-target floor. The space comes from the image. */
+  .size-pill { min-height: 36px; padding: 7px 13px; font-size: 0.74rem; }
+  .qty-row { margin: 8px 0 2px; }
+  .qty-stepper button { width: 34px; height: 34px; }
+
+  /* Reorder so the buy controls come before the description. The body is already a flex column, so
+     this is pure CSS — no markup or script change, and desktop keeps the original order. The
+     description is the one block a shopper doesn't need before deciding to add to cart. */
+  .modal-body > #modal-bulk { order: 1; }
+  .modal-body > .modal-foot { order: 2; margin-top: 0; }
+  .modal-body > .modal-desc { order: 3; margin: 14px 0 0; }
+
+  /* The foot wraps on a phone, so this gap is the breathing room *below the price* before the
+     buttons start. 16px reads as a deliberate break rather than a crowded stack. */
+  .modal-foot { gap: 16px; }
+  .modal-actions { gap: 10px; width: 100%; }
+  /* Add to Cart and Buy Now share a row and stretch; "Ask on IG" drops to its own full-width line
+     underneath. The default .btn padding renders these 66px tall — trimming to a 44px target keeps
+     them comfortably tappable while giving ~60px back across the two rows. */
+  /* The basis must be half the row MINUS half the gap, or the pair no longer fits on one line and
+     silently stacks — which is exactly what a 10px gap against a `50% - 4px` basis did. */
+  .modal-actions .btn {
+    flex: 1 1 calc(50% - 5px);
+    min-height: 44px;
+    padding: 11px 14px;
+    font-size: 12px;
+  }
+  /* order:3 puts "Ask on IG" *under* the two buy buttons. It's the secondary path, and having it
+     take the first full-width row was pushing Add to Cart just past the fold. */
+  .modal-actions .btn-outline[href] { flex: 1 1 100%; order: 3; }
+
+  /* Bulk block: the compacting is all box — padding, row gaps, the rule above the note. Every font
+     size here is untouched, so the ladder reads exactly as before in a shorter box. This is where
+     the extra image height comes from. */
+  .bulk-table { padding: 9px 13px 10px; gap: 3px; margin-bottom: 12px; }
+  .bulk-table-head { font-size: 11px; margin-bottom: 0; }
+  .bulk-row { font-size: 13px; line-height: 1.35; }
+  .bulk-row-price i { font-size: 11px; }
+  .bulk-note { font-size: 11.5px; line-height: 1.45; padding-top: 7px; margin-top: 3px; }
+
+  /* Card pills too — 10px mono was tight on a phone. */
+  .bulk-tier { font-size: 11px; padding: 5px 9px; }
+  .bulk-strip-label { font-size: 10px; }
+}
+
+/* ================= TOUCH DEVICES ONLY — performance =================
+   Everything below is gated on `(hover: none)`, which is true on phones and tablets and false on
+   any machine with a mouse, so the desktop build never sees a single one of these rules.
+
+   These are the four things measured as the dominant GPU cost on iPhone. Colours, layout, fonts,
+   card design, pricing and the brand look are all untouched — what goes away is per-frame
+   compositing work, not the design. */
+@media (hover: none) {
+
+  /* 1. Film grain. A viewport-sized `mix-blend-mode: overlay` layer forces Safari to re-composite
+        the ENTIRE page through a blend on every single frame, which is what made scrolling drag.
+        It was only 4.5% opacity, so its absence reads as a very slightly cleaner surface. */
+  .noise { display: none; }
+
+  /* 2. Backdrop blurs. Each one re-blurs whatever sits behind it every frame, and the header and
+        footer are pinned on screen for the whole scroll. Dropping the blur alone would leave sharp
+        page content showing through translucent bars, so each background steps up in opacity —
+        same colour, same hue, just more of it — to keep the separation the blur was providing. */
+  .site-header { backdrop-filter: none; background: rgba(10,10,11,0.94); }
+  .site-footer { backdrop-filter: none; background: rgba(10,10,11,0.97); }
+  .stack-card  { backdrop-filter: none; background: rgba(31,31,35,0.93); }
+  /* one class covers the item, checkout, cart and orders overlays */
+  .modal-overlay { backdrop-filter: none; background: rgba(6,6,7,0.94); }
+  .lightbox-overlay { backdrop-filter: none; background: rgba(8,8,9,0.97); }
+
+  /* 3. Skyline motion. The two bands are 192k and 383k pixels of permanently animating composited
+        layer, so the GPU never goes idle even while the page sits still. The city itself stays
+        exactly where it is and at the same opacity — only the drift stops. */
+  .city-sky-far,
+  .city-sky-near {
+    animation: none;
+    will-change: auto;
+  }
+
+  /* 4. The 3D tilt. It is driven entirely by `mousemove`, which a touch screen never fires, so on a
+        phone it renders nothing while `will-change` pins all 45 `.tilt` elements — 20 product cards
+        among them — onto permanent GPU layers. At rest the transform is identity and the glow is
+        transparent, so removing it is pixel-identical to what the phone already displays. */
+  .tilt {
+    transform: none;
+    transform-style: flat;
+    transition: none;
+    will-change: auto;
+  }
+  .tilt-glow { display: none; }
 }

@@ -118,6 +118,232 @@ function shippingFor(lines) {
   return tier ? tier.price : SHIPPING_OVER_MAX;
 }
 
+// ---------- pricing ----------
+// Prices live in pricing.json, NOT here — the whole point is that they can be changed without
+// touching code. This section only loads that file and answers "what does this cost at qty N".
+//
+// Shape: every category carries its own tier ladder (so shoes can break at 3/6/12 while shirts
+// break at 5/10/20), and every product carries a price per tier id. A product may override the
+// ladder too. Anything missing falls back: product tiers -> category tiers -> defaultTiers, and
+// product price -> the next tier down -> the price hardcoded in PRODUCTS above.
+let PRICING = null;
+
+// The price literals in PRODUCTS stay reachable as `basePrice` after pricing.json overwrites
+// `price`, so a missing or malformed entry degrades to the old price instead of to NaN.
+function stashBasePrices() {
+  PRODUCTS.forEach((p) => { p.basePrice = p.price; });
+}
+
+// Single-tier stand-in used when pricing.json can't be read — e.g. opening index.html over
+// file://, where fetch of a local file is blocked. The site keeps its current prices.
+function fallbackPricing() {
+  return {
+    defaultTiers: [{ id: "retail", label: "Single", minQty: 1 }],
+    categories: {},
+    products: Object.fromEntries(PRODUCTS.map((p) => [p.name, { prices: { retail: p.basePrice } }])),
+  };
+}
+
+function normalizeTiers(tiers) {
+  return tiers
+    .filter((t) => t && typeof t.minQty === "number" && t.id)
+    .slice()
+    .sort((a, b) => a.minQty - b.minQty);   // ascending, so the last match is the best tier reached
+}
+
+async function loadPricing() {
+  stashBasePrices();
+  try {
+    const res = await fetch("pricing.json", { cache: "no-store" });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const doc = await res.json();
+    PRICING = {
+      defaultTiers: normalizeTiers(doc.defaultTiers || []),
+      categories: doc.categories || {},
+      products: doc.products || {},
+    };
+    Object.values(PRICING.categories).forEach((c) => {
+      if (Array.isArray(c.tiers)) c.tiers = normalizeTiers(c.tiers);
+    });
+    Object.values(PRICING.products).forEach((p) => {
+      if (Array.isArray(p.tiers)) p.tiers = normalizeTiers(p.tiers);
+    });
+    if (PRICING.defaultTiers.length === 0) PRICING.defaultTiers = [{ id: "retail", label: "Single", minQty: 1 }];
+    validatePricing();
+  } catch (err) {
+    console.warn(`[pricing] couldn't load pricing.json (${err.message}) — falling back to the prices in script.js.`);
+    PRICING = fallbackPricing();
+  }
+  applyRetailPrices();
+}
+
+// The tier ladder that applies to one product, most specific first.
+function tiersFor(p) {
+  const entry = PRICING.products[p.name];
+  if (entry && Array.isArray(entry.tiers) && entry.tiers.length) return entry.tiers;
+  const cat = PRICING.categories[p.category];
+  if (cat && Array.isArray(cat.tiers) && cat.tiers.length) return cat.tiers;
+  return PRICING.defaultTiers;
+}
+
+// The tier the buyer actually pays at this quantity, or null if no reached tier has a price.
+//
+// This picks the CHEAPEST reached tier, not the deepest one. Since raising the quantity can only
+// add tiers to the reached set and never remove one, taking the minimum makes the per-unit price
+// mathematically non-increasing as quantity rises — a buyer can never pay more per item by buying
+// more, even if someone later fat-fingers a bulk price above the retail one. With a correctly
+// descending ladder this picks exactly the same tier the deepest-match rule would.
+function tierFor(p, qty = 1) {
+  const prices = (PRICING.products[p.name] || {}).prices || {};
+  let hit = null;
+  for (const t of tiersFor(p)) {
+    if (qty < t.minQty || typeof prices[t.id] !== "number") continue;
+    // `<=` so that on a tie the deeper tier wins and gets reported as the one that applied.
+    if (hit === null || prices[t.id] <= prices[hit.id]) hit = t;
+  }
+  return hit;
+}
+
+// Per-unit price at this quantity. Everything that shows or sums money goes through here.
+function priceFor(p, qty = 1) {
+  const prices = (PRICING.products[p.name] || {}).prices || {};
+  const tier = tierFor(p, qty);
+  return tier ? prices[tier.id] : (p.basePrice ?? p.price);
+}
+
+// Units that count toward a product's bulk tier. Pooled by CATEGORY: every shirt in the basket
+// counts toward every shirt's tier, across styles and sizes alike, so 3 of one tee plus 2 of
+// another is 5 shirts and each of the 5 bills at the 5+ price. Tiers are defined per category, so
+// the category is the natural unit to count over.
+function poolUnitsIn(lines, p) {
+  return lines.reduce((n, l) => (l.category === p.category ? n + l.qty : n), 0);
+}
+
+// Price for one cart line, judged against the whole basket so the rest of the category counts.
+function linePrice(line, lines) {
+  return priceFor(line, lines ? poolUnitsIn(lines, line) : line.qty);
+}
+
+// ---------- bulk pricing display ----------
+// The tiers worth advertising: the ones that actually beat the single-unit price. Read straight
+// out of pricing.json through priceFor(), so what a card promises and what the cart charges can
+// never drift apart — and so this stays correct when the owner edits prices.
+//
+// It also means the display needs no category check. A category whose tiers all sit at the retail
+// price (every category except shirts today) yields an empty list and renders nothing, and the day
+// belts get real bulk pricing their cards pick it up on their own.
+function savingTiers(p) {
+  const single = priceFor(p, 1);
+  const out = [];
+  tiersFor(p).forEach((t) => {
+    const price = priceFor(p, t.minQty);
+    // Skip a tier that saves nothing, and skip a deeper tier that repeats the price above it.
+    if (price < single && !out.some((x) => x.price === price)) out.push({ minQty: t.minQty, price });
+  });
+  return out;
+}
+
+// "1–4 / 5–9 / 10–19 / 20+" — each band runs up to the unit before the next one starts.
+function bulkBands(p) {
+  const tiers = savingTiers(p);
+  if (tiers.length === 0) return [];
+  const bands = [{ label: `1–${tiers[0].minQty - 1}`, price: priceFor(p, 1), isRetail: true }];
+  tiers.forEach((t, i) => {
+    const next = tiers[i + 1];
+    bands.push({ label: next ? `${t.minQty}–${next.minQty - 1}` : `${t.minQty}+`, price: t.price });
+  });
+  return bands;
+}
+
+// Quantities pool across a whole category, so the note names the category's own noun. Set
+// `bulkNoun` per category in pricing.json; falls back to the category name.
+function bulkNoun(p) {
+  const cat = PRICING.categories[p.category] || {};
+  return cat.bulkNoun || p.category.toLowerCase();
+}
+
+function bulkNote(p) {
+  return `Mix &amp; match ${bulkNoun(p)} styles — quantity discounts apply automatically in cart.`;
+}
+
+// Compact one-liner for the card. Deliberately just the discounted tiers, not the retail row —
+// the retail price is already sitting right above it, and repeating it crowds the card.
+function bulkStripHtml(p) {
+  const tiers = savingTiers(p);
+  if (tiers.length === 0 || p.status === "sold") return "";
+  return `
+        <div class="bulk-strip">
+          <span class="bulk-strip-label">Buy more &amp; save</span>
+          <span class="bulk-strip-tiers">
+            ${tiers.map((t) => `<span class="bulk-tier"><b>${t.minQty}+</b>${money(t.price)}</span>`).join("")}
+          </span>
+        </div>`;
+}
+
+// Full ladder for the detail modal, where there's room for the retail row and the note.
+function bulkTableHtml(p) {
+  const bands = bulkBands(p);
+  if (bands.length === 0 || p.status === "sold") return "";
+  return `
+    <div class="bulk-table" role="table" aria-label="Quantity pricing">
+      <span class="bulk-table-head">Buy more &amp; save</span>
+      ${bands.map((b) => `
+        <span class="bulk-row${b.isRetail ? " is-retail" : ""}" role="row">
+          <span class="bulk-row-qty" role="cell">${b.label}</span>
+          <span class="bulk-row-price" role="cell">${money(b.price)} <i>each</i></span>
+        </span>`).join("")}
+      <span class="bulk-note">${bulkNote(p)}</span>
+    </div>`;
+}
+
+// Cards, the modal, filters, sorting and the bid all read `p.price`. Pointing that at the qty-1
+// price keeps pricing.json authoritative for the retail number without touching those call sites.
+function applyRetailPrices() {
+  PRODUCTS.forEach((p) => { p.price = priceFor(p, 1); });
+}
+
+// Typos in a hand-edited JSON file shouldn't fail silently — say so in the console instead.
+function validatePricing() {
+  const known = new Set(PRODUCTS.map((p) => p.name));
+  const problems = [];
+
+  Object.keys(PRICING.products).forEach((name) => {
+    if (!known.has(name)) problems.push(`"${name}" isn't a product in script.js — check the spelling.`);
+  });
+
+  PRODUCTS.forEach((p) => {
+    const entry = PRICING.products[p.name];
+    if (!entry) {
+      problems.push(`"${p.name}" has no pricing entry — using its script.js price of $${p.basePrice}.`);
+      return;
+    }
+    const prices = entry.prices || {};
+    const ids = tiersFor(p).map((t) => t.id);
+    if (typeof prices[ids[0]] !== "number") {
+      problems.push(`"${p.name}" has no price for its first tier ("${ids[0]}") — falling back to $${p.basePrice}.`);
+    }
+    Object.entries(prices).forEach(([id, val]) => {
+      if (typeof val !== "number" || !(val >= 0)) problems.push(`"${p.name}" tier "${id}" is ${JSON.stringify(val)}, not a number.`);
+      else if (!ids.includes(id)) problems.push(`"${p.name}" prices tier "${id}", which isn't in its ladder (${ids.join(", ")}).`);
+    });
+
+    // A bulk tier priced above a shallower one is always a mistake — buying more should never cost
+    // more per unit. tierFor() refuses to charge it, but the file still needs correcting.
+    let cheapest = Infinity;
+    ids.forEach((id) => {
+      const val = prices[id];
+      if (typeof val !== "number") return;
+      if (val > cheapest) {
+        problems.push(`"${p.name}" tier "${id}" ($${val}) costs more per unit than a smaller quantity ($${cheapest}) — buyers are charged $${cheapest} instead.`);
+      }
+      cheapest = Math.min(cheapest, val);
+    });
+  });
+
+  if (problems.length) console.warn("[pricing] " + problems.length + " issue(s) in pricing.json:\n - " + problems.join("\n - "));
+  return problems;
+}
+
 function money(n) {
   return `$${n.toFixed(2)}`;
 }
@@ -231,6 +457,11 @@ function updateBidDisplay(current) {
 
 async function refreshBidState() {
   if (!bidItem) return;
+  // A backgrounded tab kept polling every 6s forever — a request, a JSON parse and a DOM update
+  // for a page nobody is looking at, which on a phone is radio wake-ups and battery. Skipping
+  // while hidden changes nothing on screen: `visibilitychange` below refreshes on the way back,
+  // so the figure is already current by the time the page is visible again.
+  if (document.hidden) return;
   try {
     const res = await fetch(`/api/bid?item=${encodeURIComponent(bidItem.name)}`);
     if (res.ok) {
@@ -303,10 +534,22 @@ async function loadClickCounts() {
 // Recomputed on page load only, not mid-session, so cards don't shuffle under a browsing visitor.
 function trackClick(name) {
   clickCounts[name] = (clickCounts[name] || 0) + 1;
+  const body = JSON.stringify({ name });
+  // sendBeacon hands the request to the browser to send on its own schedule, off the critical path,
+  // so opening a product doesn't kick off a fetch that competes with rendering the modal. It also
+  // survives the page being backgrounded mid-request. fetch stays as the fallback.
+  if (navigator.sendBeacon) {
+    try {
+      navigator.sendBeacon("/api/click", new Blob([body], { type: "application/json" }));
+      return;
+    } catch (e) {
+      // fall through to fetch
+    }
+  }
   fetch("/api/click", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ name }),
+    body,
   }).catch(() => {});
 }
 
@@ -366,7 +609,7 @@ function renderFeatured() {
       <dl class="stack-specs">
         ${featuredStatsFor(p).map(([label, value]) => `<div class="stack-spec"><dd class="stack-spec-value">${value}</dd><dt class="stack-spec-label">${label}</dt></div>`).join("")}
       </dl>
-      <div class="stack-image">${p.img ? `<img src="${p.img}" alt="${p.name}" loading="lazy">` : `<span>Photo Coming</span>`}</div>
+      <div class="stack-image">${p.img ? `<img src="${p.img}" alt="${p.name}" loading="lazy" decoding="async">` : `<span>Photo Coming</span>`}</div>
       <span class="stack-brand${hasBrand(p) ? "" : " card-brand-missing"}">${p.brand}</span>
       <span class="stack-title">${p.name}</span>
       <span class="stack-subtitle">${p.category}</span>
@@ -467,7 +710,7 @@ function renderCategoryTiles() {
     const thumb = (PRODUCTS.find((p) => p.img && (c === "All" || p.category === c)) || {}).img;
     return `
       <button type="button" class="category-tile tilt ${c === state.category ? "active" : ""}" data-tilt-max="5" data-category="${c}">
-        ${thumb ? `<img src="${thumb}" alt="" loading="lazy">` : ""}
+        ${thumb ? `<img src="${thumb}" alt="" loading="lazy" decoding="async">` : ""}
         <div class="category-tile-overlay">
           <span class="category-tile-name">${c}</span>
           <span class="category-tile-count">${count} item${count === 1 ? "" : "s"}</span>
@@ -528,18 +771,45 @@ function getFilteredProducts() {
   return items;
 }
 
+// One delegated click handler for the whole grid, bound once, instead of one listener per card
+// re-attached on every render. Cards are matched by the `data-index` they already carry.
+let gridClickBound = false;
+
+function bindGridClicks(grid) {
+  if (gridClickBound) return;
+  gridClickBound = true;
+  grid.addEventListener("click", (e) => {
+    const card = e.target.closest(".card");
+    if (!card || !grid.contains(card)) return;
+    const index = Number(card.dataset.index);
+    if (!Number.isNaN(index)) openModal(PRODUCTS[index]);
+  });
+}
+
+// Signature of what the grid is currently showing. Typing in the search box fires an input event
+// per keystroke, and most keystrokes don't change which products match — rebuilding 20 cards of
+// innerHTML (throwing away decoded images and forcing a full relayout) to produce byte-identical
+// markup is pure waste on a phone. Same output, so nothing visual depends on this.
+let lastGridSignature = null;
+
 function renderProducts() {
   const grid = document.getElementById("product-grid");
   const emptyState = document.getElementById("empty-state");
   const items = getFilteredProducts();
 
+  bindGridClicks(grid);
+
   emptyState.hidden = items.length > 0;
   grid.hidden = items.length === 0;
+
+  const signature = items.map((p) => `${PRODUCTS.indexOf(p)}:${p.price}:${p.stock}:${p.status}`).join("|");
+  if (signature === lastGridSignature) return;
+  lastGridSignature = signature;
 
   grid.innerHTML = items.map((p, i) => `
     <div class="card tilt" data-tilt-max="6" data-index="${PRODUCTS.indexOf(p)}">
       <div class="card-media">
-        ${p.img ? `<img src="${p.img}" alt="${p.name}" loading="lazy">` : `<span>Photo Coming</span>`}
+        ${p.img ? `<img src="${p.img}" alt="${p.name}" loading="lazy" decoding="async">` : `<span>Photo Coming</span>`}
         <div class="tilt-glow"></div>
         <span class="tag ${p.status}">${p.status === "sold" ? "Sold Out" : "Available"}</span>
       </div>
@@ -556,17 +826,10 @@ function renderProducts() {
             <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 11v5"/><circle cx="12" cy="8" r="0.5" fill="currentColor"/></svg>
             Details
           </button>
-        </div>
+        </div>${bulkStripHtml(p)}
       </div>
     </div>
   `).join("");
-
-  grid.querySelectorAll(".card").forEach((el) => {
-    el.addEventListener("click", () => {
-      const index = Number(el.dataset.index);
-      if (!Number.isNaN(index)) openModal(PRODUCTS[index]);
-    });
-  });
 
   initTilt();
 }
@@ -594,6 +857,7 @@ function openModal(p) {
   document.getElementById("modal-desc").textContent = p.desc;
   document.getElementById("modal-price").textContent = `$${p.price}`;
   document.getElementById("modal-stock-note").textContent = p.status === "sold" ? "" : stockLabel(p);
+  document.getElementById("modal-bulk").innerHTML = bulkTableHtml(p);
   syncModalActions();
   document.getElementById("modal-overlay").hidden = false;
   syncBodyScroll();
@@ -717,8 +981,9 @@ function syncBodyScroll() {
 }
 
 // `removable` rows (the cart) get a live quantity stepper; read-only rows (checkout) show "x N".
-function checkoutItemRow(line, removable) {
+function checkoutItemRow(line, removable, lines) {
   const sizeLabel = line.size === "One Size" ? "One Size" : `Size ${line.size}`;
+  const unitPrice = linePrice(line, lines);
   const max = unitsFor(line, line.size);
   const qtyControl = removable
     ? `<div class="qty-stepper qty-stepper-sm">
@@ -736,15 +1001,16 @@ function checkoutItemRow(line, removable) {
         <span class="checkout-item-meta">${line.category} &middot; ${sizeLabel}</span>
       </div>
       ${qtyControl}
-      <span class="price">$${line.price * line.qty}</span>
+      <span class="price">${money(unitPrice * line.qty)}</span>
       ${removable ? `<button type="button" class="checkout-item-remove" data-line-id="${line.lineId}" aria-label="Remove">&times;</button>` : ""}
     </div>
   `;
 }
 
-// Every money figure runs through here so price x quantity is never summed by hand.
+// Every money figure runs through here so price x quantity is never summed by hand. The per-unit
+// price depends on how many of that style the basket holds, so the whole list is passed to each line.
 function lineTotal(lines) {
-  return lines.reduce((sum, l) => sum + l.price * l.qty, 0);
+  return lines.reduce((sum, l) => sum + linePrice(l, lines) * l.qty, 0);
 }
 
 // ---------- checkout (front-end mock — no payment processor wired up yet) ----------
@@ -765,7 +1031,7 @@ function openCheckout(items) {
   const shipping = shippingFor(items);
   const total = subtotal + shipping;
 
-  document.getElementById("checkout-items").innerHTML = items.map((p) => checkoutItemRow(p, false)).join("");
+  document.getElementById("checkout-items").innerHTML = items.map((p) => checkoutItemRow(p, false, items)).join("");
   document.getElementById("checkout-subtotal").textContent = money(subtotal);
   document.getElementById("checkout-shipping").textContent = money(shipping);
   document.getElementById("checkout-ship-note").textContent = `(${(orderWeightOz(items) / 16).toFixed(1)} lb, Ground Advantage)`;
@@ -822,7 +1088,15 @@ function completeCheckout(triggerLabelEl, method, successMessage, email) {
       total: subtotal + shipping,
       weight_oz: orderWeightOz(items),
       ship_to,
-      items: items.map((l) => ({ name: fullName(l), size: l.size, qty: l.qty, price: l.price })),
+      // `price` is what was actually charged per unit, which is the tier price when the basket
+      // qualifies for one — not the retail figure on the card. `tier` records which band applied.
+      items: items.map((l) => ({
+        name: fullName(l),
+        size: l.size,
+        qty: l.qty,
+        price: linePrice(l, items),
+        tier: (tierFor(l, poolUnitsIn(items, l)) || {}).id || "retail",
+      })),
     }),
   }).catch(() => {});
 
@@ -970,7 +1244,7 @@ function renderCartItems() {
   document.getElementById("cart-shipping-row").hidden = cart.length === 0;
   checkoutBtn.hidden = cart.length === 0;
 
-  wrap.innerHTML = cart.map((p) => checkoutItemRow(p, true)).join("");
+  wrap.innerHTML = cart.map((p) => checkoutItemRow(p, true, cart)).join("");
   const cartSub = lineTotal(cart);
   const cartShip = shippingFor(cart);
   document.getElementById("cart-subtotal").textContent = money(cartSub);
@@ -978,15 +1252,28 @@ function renderCartItems() {
   document.getElementById("cart-ship-note").textContent = cart.length ? `(${(orderWeightOz(cart) / 16).toFixed(1)} lb)` : "";
   document.getElementById("cart-total-price").textContent = money(cartSub + cartShip);
 
-  wrap.querySelectorAll(".checkout-item-remove").forEach((btn) => {
-    btn.addEventListener("click", () => removeFromCart(btn.dataset.lineId));
-  });
+  bindCartClicks(wrap);
+}
 
-  wrap.querySelectorAll(".qty-stepper button").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      const line = cart.find((l) => l.lineId === btn.dataset.lineId);
-      if (line) setLineQty(line.lineId, line.qty + Number(btn.dataset.step));
-    });
+// Delegated once instead of re-bound on every render. This list re-renders on every single tap of
+// a quantity stepper, and each render was attaching a fresh listener to every remove button and
+// every stepper button in the cart — work that grows with cart size and repeats on each tap.
+let cartClickBound = false;
+
+function bindCartClicks(wrap) {
+  if (cartClickBound) return;
+  cartClickBound = true;
+  wrap.addEventListener("click", (e) => {
+    const remove = e.target.closest(".checkout-item-remove");
+    if (remove) {
+      removeFromCart(remove.dataset.lineId);
+      return;
+    }
+    const step = e.target.closest(".qty-stepper button");
+    if (step) {
+      const line = cart.find((l) => l.lineId === step.dataset.lineId);
+      if (line) setLineQty(line.lineId, line.qty + Number(step.dataset.step));
+    }
   });
 }
 
@@ -1106,13 +1393,22 @@ function closeOrders() {
 
 // ---------- opening logo reveal ----------
 // Flip to true to play only on the first page of a browsing session rather than every load.
+// Desktop keeps replaying it on every load; this flag is unchanged there.
 const INTRO_ONCE_PER_SESSION = false;
+
+// Touch devices always get once-per-session. The reveal is 3.3s of spinning logo, two drifting
+// skyline bands and a sheen sweep with the page scroll-locked behind it — cheap enough once, but
+// paying it on every single page load is a large part of why the site feels slow on a phone.
+// The animation itself is untouched: same sequence, just not repeated.
+function introOncePerSession() {
+  return INTRO_ONCE_PER_SESSION || window.matchMedia("(hover: none)").matches;
+}
 
 function initIntro() {
   const intro = document.getElementById("intro");
   if (!intro) return;
 
-  const alreadyPlayed = INTRO_ONCE_PER_SESSION && sessionStorage.getItem("poc_intro_played") === "1";
+  const alreadyPlayed = introOncePerSession() && sessionStorage.getItem("poc_intro_played") === "1";
   if (alreadyPlayed) {
     intro.hidden = true;
     return;
@@ -1148,26 +1444,23 @@ function initIntro() {
   });
 }
 
-// ---------- email gate (blocks the site until an email is captured) ----------
-// Welcome + new-drop emails go out via Resend later — not wired up yet, this just
-// persists the signup server-side and remembers the visitor locally so they aren't
-// re-gated on their next visit.
-function initGate() {
-  const overlay = document.getElementById("gate-overlay");
+// ---------- newsletter signup (optional — nothing on the site is gated behind it) ----------
+// Welcome + new-drop emails go out via Resend later — not wired up yet, this just persists the
+// signup server-side. This was previously a full-screen gate that blocked the store until an email
+// was handed over; it is now an ordinary section, and no browsing, pricing, cart or product path
+// depends on it. An email is asked for once, at checkout, where it's actually needed to send a
+// confirmation.
+function initSignup() {
+  const form = document.getElementById("signup-form");
+  const errorEl = document.getElementById("signup-error");
+  const successEl = document.getElementById("signup-success");
+  const btn = document.getElementById("signup-submit-btn");
 
-  if (localStorage.getItem("poc_gate_passed") === "1") {
-    overlay.hidden = true;
-    return;
-  }
-
-  document.body.style.overflow = "hidden";
-
-  document.getElementById("gate-form").addEventListener("submit", async (e) => {
+  form.addEventListener("submit", async (e) => {
     e.preventDefault();
-    const email = document.getElementById("gate-email").value.trim();
-    const errorEl = document.getElementById("gate-error");
-    const btn = document.getElementById("gate-submit-btn");
+    const email = document.getElementById("signup-email").value.trim();
     errorEl.hidden = true;
+    successEl.hidden = true;
     btn.disabled = true;
     btn.textContent = "One sec...";
 
@@ -1182,16 +1475,23 @@ function initGate() {
         errorEl.textContent = data.error || "That email didn't work — try again.";
         errorEl.hidden = false;
         btn.disabled = false;
-        btn.textContent = "Get Access";
+        btn.textContent = "Sign Up";
         return;
       }
     } catch (err) {
-      // Server unreachable (e.g. static hosting) — don't hard-lock out a real visitor.
+      // Server unreachable (e.g. opened over file://). Nothing is gated on this, so the visitor
+      // loses nothing — just say it didn't send rather than pretending it did.
+      errorEl.textContent = "Couldn't reach the server — try again later.";
+      errorEl.hidden = false;
+      btn.disabled = false;
+      btn.textContent = "Sign Up";
+      return;
     }
 
-    localStorage.setItem("poc_gate_passed", "1");
-    overlay.hidden = true;
-    document.body.style.overflow = "";
+    form.reset();
+    successEl.hidden = false;
+    btn.disabled = false;
+    btn.textContent = "Sign Up";
   });
 }
 
@@ -1305,6 +1605,12 @@ function initTilt() {
   const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   if (reduced) return;
 
+  // Touch devices can't produce the hover this effect needs. Skipping here avoids binding 45
+  // mousemove listeners and injecting 45 gradient overlays that can never be seen; the matching
+  // `(hover: none)` CSS block drops the layer promotion. Desktop is unaffected.
+  if (window.matchMedia("(hover: none)").matches) return;
+
+
   document.querySelectorAll(".tilt").forEach((el) => {
     if (tiltBound.has(el)) return;
     tiltBound.add(el);
@@ -1351,12 +1657,19 @@ function initTilt() {
 
 document.addEventListener("DOMContentLoaded", async () => {
   initIntro();
-  initGate();
-  await loadClickCounts();
+  initSignup();
+  // Both must land before the first render — pricing for every price on the page, click counts for
+  // the featured order — but neither depends on the other, and awaiting them in series cost two
+  // round trips back to back before anything could paint. Same two fetches, run side by side.
+  await Promise.all([loadPricing(), loadClickCounts()]);
   renderFeatured();
   initStack();
   renderBidCard();
   setInterval(refreshBidState, 6000);
+  // Catch up the moment the page comes back, so pausing while hidden is invisible.
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden) refreshBidState();
+  });
   renderCategoryTiles();
   renderSizeFilter();
   renderProducts();

@@ -46,10 +46,23 @@ class Handler(http.server.SimpleHTTPRequestHandler):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, directory=DIR, **kwargs)
 
-    # Local dev server — never let the browser cache anything, so edits always show up
-    # on the next reload instead of silently serving a stale script.js or index.html.
+    # Markup, code and data are never cached, so edits always show up on the next reload instead
+    # of silently serving a stale script.js or index.html.
+    #
+    # Images are the exception. Blanket no-store meant a phone re-downloaded every product photo on
+    # every single page load — ~480KB of images that had not changed, over cellular, before the
+    # catalog could paint. They now get "no-cache", which is not "don't cache": the browser keeps
+    # the file and revalidates it with If-Modified-Since, so an unchanged image comes back as a
+    # bodyless 304 instead of a fresh download. Replacing an image on disk still updates instantly,
+    # because every load still asks — which is what keeps this safe during development.
+    CACHEABLE_SUFFIXES = (".jpg", ".jpeg", ".png", ".webp", ".gif", ".svg", ".ico", ".woff2")
+
     def end_headers(self):
-        self.send_header("Cache-Control", "no-store, must-revalidate")
+        path = urlsplit(self.path).path.lower()
+        if path.endswith(self.CACHEABLE_SUFFIXES):
+            self.send_header("Cache-Control", "no-cache")
+        else:
+            self.send_header("Cache-Control", "no-store, must-revalidate")
         super().end_headers()
 
     def do_GET(self):
