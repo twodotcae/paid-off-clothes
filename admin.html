@@ -88,8 +88,15 @@ textarea{resize:vertical;min-height:56px}
 .check{display:flex;align-items:center;gap:9px}
 .check input{width:17px;height:17px;accent-color:var(--white)}
 .check label{font-size:13px;text-transform:none;letter-spacing:0;color:var(--g100);font-family:inherit}
-.actions{display:flex;gap:10px;margin-top:22px;padding-top:16px;border-top:1px solid var(--g900)}
+/* The action bar used to sit at the natural end of a ~1200px panel, which put the primary button
+   below the fold on a 800px-tall window — you had to scroll a modal to reach the button that
+   commits your work, and the biggest click target on screen was the backdrop that discards it.
+   Sticking it to the bottom of the panel means the button is always where your eye already is. */
+.actions{display:flex;gap:10px;margin-top:22px;padding:14px 22px;border-top:1px solid var(--g800);
+  position:sticky;bottom:-22px;background:var(--charcoal);margin-left:-22px;margin-right:-22px;
+  margin-bottom:-22px;z-index:2}
 .actions .sp{flex:1}
+.panel{padding-bottom:22px}
 .preview{width:100%;max-height:150px;object-fit:contain;border-radius:9px;background:var(--g900);margin-top:7px}
 .tier-note{font-size:12px;color:var(--warn);margin-top:8px;line-height:1.55}
 .err-box{background:#2a1414;border:1px solid #5c2b2b;color:#fca5a5;border-radius:10px;
@@ -117,12 +124,12 @@ textarea{resize:vertical;min-height:56px}
     <h1>Paid Off Clothes &mdash; Admin</h1>
     <span class="badge" id="count-badge">0 products</span>
     <span class="badge" id="dirty-badge" hidden>unsaved changes</span>
+    <a class="btn btn-sm" href="/" target="_blank" rel="noopener" style="margin-left:8px">View storefront</a>
     <span class="sp"></span>
-    <a class="btn btn-sm" href="/" target="_blank" rel="noopener">View storefront</a>
     <button class="btn btn-sm" id="pw-btn">Change password</button>
     <button class="btn btn-sm" id="logout-btn">Log out</button>
     <button class="btn btn-sm" id="add-btn">+ Add product</button>
-    <button class="btn btn-sm btn-primary" id="save-btn" disabled>Save all</button>
+    <button class="btn btn-sm btn-primary" id="save-btn" disabled title="Only needed if a publish failed">Publish changes</button>
   </header>
   <main>
     <div id="errors"></div>
@@ -622,7 +629,7 @@ function blankProduct() {
   const cats = (DOC.categories || []).filter((c) => c !== "All");
   return {
     id: "", name: "", brand: "", category: cats[0] || "", description: "",
-    image: "", images: [], retailPrice: 0, bulkPrice: null, bulkMinQty: null,
+    image: "", images: [], retailPrice: null, bulkPrice: null, bulkMinQty: null,
     sizes: [{ size: "One Size", qty: 1 }], status: "available", featured: false,
   };
 }
@@ -681,14 +688,22 @@ function openEditor(index) {
         (index === -1 ? "" : '<button class="btn btn-danger" id="ed-delete">Delete</button>') +
         '<span class="sp"></span>' +
         '<button class="btn" id="ed-cancel">Cancel</button>' +
-        '<button class="btn btn-primary" id="ed-apply">' + (index === -1 ? "Add" : "Apply") + '</button>' +
+        '<button class="btn btn-primary" id="ed-apply">' + (index === -1 ? "Add Product" : "Save product") + '</button>' +
       '</div>' +
     '</div>';
   document.body.appendChild(ov);
 
+  // Any edit at all arms the discard warning. Without this, the backdrop — the largest click
+  // target on screen — throws away a filled-in product with no confirmation and no undo.
+  let touched = false;
+  ov.addEventListener("input", () => { touched = true; });
+  ov.addEventListener("change", () => { touched = true; });
+
   // populate
   $("f-name").value = p.name; $("f-brand").value = p.brand || "";
-  $("f-cat").value = p.category; $("f-retail").value = p.retailPrice;
+  $("f-cat").value = p.category;
+  // Empty, not "0" — a new product showing 0 sails past validation and publishes priced at nothing.
+  $("f-retail").value = (typeof p.retailPrice === "number") ? p.retailPrice : "";
   $("f-desc").value = p.description || "";
   $("f-sold").checked = p.status === "sold"; $("f-featured").checked = !!p.featured;
   $("ed-id").textContent = index === -1 ? "id is generated from the name when you add it"
@@ -789,29 +804,68 @@ function openEditor(index) {
   $("f-cat").addEventListener("change", renderTiers);
 
   // ---- apply / delete / cancel ----
-  $("ed-cancel").addEventListener("click", () => ov.remove());
-  ov.addEventListener("click", (e) => { if (e.target === ov) ov.remove(); });
+  const discard = (reason) => {
+    if (touched && !confirm(
+      (index === -1 ? "Discard this new product?" : "Discard your changes to this product?") +
+      "\n\nAnything you have typed will be lost." +
+      (reason === "backdrop" ? "\n\n(You clicked outside the panel.)" : "")
+    )) return;
+    ov.remove();
+  };
+  $("ed-cancel").addEventListener("click", () => discard("cancel"));
+  ov.addEventListener("click", (e) => { if (e.target === ov) discard("backdrop"); });
+  document.addEventListener("keydown", function esc(e) {
+    if (!document.body.contains(ov)) { document.removeEventListener("keydown", esc); return; }
+    if (e.key === "Escape") discard("cancel");
+  });
 
   if (index !== -1) {
-    $("ed-delete").addEventListener("click", () => {
-      if (!confirm('Delete "' + p.name + '"? This removes it from the catalog and its pricing entry. Nothing is written until you press Save all.')) return;
-      delete PRICING.products[DOC.products[index].name];
+    $("ed-delete").addEventListener("click", async () => {
+      if (!confirm('Delete "' + p.name + '"?\n\nThis removes it from the catalog and its pricing ' +
+                   'entry, and publishes immediately. The previous catalog is kept in backups/.')) return;
+      const removed = DOC.products[index];
+      const removedPricing = PRICING.products[removed.name];
+      delete PRICING.products[removed.name];
       DOC.products.splice(index, 1);
-      ov.remove(); setDirty(true); render(); toast("Deleted — press Save all to write it");
+      render();
+
+      let result;
+      try { result = await publishNow(); }
+      catch (e) { result = { ok: false, errors: ["Could not reach the server: " + e.message] }; }
+
+      if (!result.ok) {
+        // Put it back rather than leaving the list disagreeing with the file on disk.
+        DOC.products.splice(index, 0, removed);
+        if (removedPricing) PRICING.products[removed.name] = removedPricing;
+        setDirty(false); render();
+        $("ed-errors").innerHTML = '<div class="err-box">Delete failed, nothing was removed:\n' +
+          result.errors.join("\n") + '</div>';
+        $("ed-errors").scrollIntoView({ behavior: "smooth", block: "center" });
+        return;
+      }
+      ov.remove(); render(); toast('"' + removed.name + '" deleted and published');
     });
   }
 
-  $("ed-apply").addEventListener("click", () => {
+  $("ed-apply").addEventListener("click", async () => {
     const errs = [];
     const name = $("f-name").value.trim();
-    const retail = parseFloat($("f-retail").value);
+    const rawRetail = $("f-retail").value.trim();
+    const retail = parseFloat(rawRetail);
     if (!name) errs.push("Name is required.");
-    if (!(retail >= 0)) errs.push("Retail price must be a number.");
+    if (rawRetail === "") errs.push("Retail price is required.");
+    else if (!isFinite(retail) || retail <= 0) errs.push("Retail price must be a number greater than 0.");
     p.sizes = p.sizes.filter((s) => String(s.size).trim() !== "");
     if (!p.sizes.length) errs.push("At least one size is required.");
     const clash = DOC.products.some((o, i) => i !== index && o.name === name);
     if (clash) errs.push("Another product already uses that name. Names must be unique.");
-    if (errs.length) { $("ed-errors").innerHTML = '<div class="err-box">' + errs.join("\n") + '</div>'; return; }
+    if (errs.length) {
+      $("ed-errors").innerHTML = '<div class="err-box">' + errs.join("\n") + '</div>';
+      // The error box lives at the top of a tall panel; without this it renders off-screen and
+      // pressing the button looks like it did nothing at all.
+      $("ed-errors").scrollIntoView({ behavior: "smooth", block: "center" });
+      return;
+    }
 
     p.name = name;
     p.brand = $("f-brand").value.trim() || "[brand?]";
@@ -855,33 +909,71 @@ function openEditor(index) {
     if (typeof entry.prices.retail !== "number") entry.prices.retail = retail;
     PRICING.products[name] = entry;
 
-    ov.remove(); setDirty(true); render();
-    toast(index === -1 ? "Added — press Save all to write it" : "Applied — press Save all to write it");
+    // Publish straight away. The two-step "apply, then remember to press Save all" is what let a
+    // finished product evaporate: the second step was in a header the editor was covering.
+    const btn = $("ed-apply");
+    const label = btn.textContent;
+    btn.disabled = true; btn.textContent = "Saving…";
+    render();  // list updates immediately so the product is visibly there while the write happens
+
+    let result;
+    try {
+      result = await publishNow();
+    } catch (e) {
+      result = { ok: false, errors: ["Could not reach the server: " + e.message] };
+    }
+    btn.disabled = false; btn.textContent = label;
+
+    if (!result.ok) {
+      // Kept in memory and marked dirty rather than thrown away, so the work survives a failure.
+      $("ed-errors").innerHTML = '<div class="err-box">Saved locally but the server rejected it:\n' +
+        result.errors.join("\n") + '\n\nFix the problem and press Save product again, or use ' +
+        '"Publish changes" in the header to retry.</div>';
+      $("ed-errors").scrollIntoView({ behavior: "smooth", block: "center" });
+      render();
+      return;
+    }
+
+    ov.remove();
+    render();
+    toast(index === -1 ? '"' + name + '" added and published' : '"' + name + '" saved and published');
   });
 }
 
 $("add-btn").addEventListener("click", () => openEditor(-1));
 
-// ---------- save ----------
+// ---------- publish ----------
+// One place that writes to disk. Adding, editing and deleting all call this straight away, so
+// there is no second step to forget: the button you press is the button that saves. If the write
+// fails the in-memory change is KEPT and marked dirty, so nothing is silently lost and the header
+// button becomes a retry.
+async function publishNow() {
+  const res = await api("/api/admin/save", {
+    method: "POST",
+    body: JSON.stringify({ products: DOC, pricing: PRICING }),
+  });
+  const out = await res.json().catch(() => ({ ok: false, error: "Server returned a non-JSON response." }));
+  if (!res.ok || !out.ok) {
+    setDirty(true);
+    return { ok: false, errors: out.errors || [out.error || "Unknown error"] };
+  }
+  setDirty(false);
+  return { ok: true, count: out.products };
+}
+
+// ---------- manual retry (only reachable if a publish failed) ----------
 $("save-btn").addEventListener("click", async () => {
   $("save-btn").disabled = true; $("errors").innerHTML = "";
   try {
-    const res = await api("/api/admin/save", {
-      method: "POST",
-      body: JSON.stringify({ products: DOC, pricing: PRICING }),
-    });
-    const out = await res.json();
-    if (!res.ok || !out.ok) {
-      $("errors").innerHTML = '<div class="err-box">Save rejected:\n' +
-        (out.errors || [out.error || "unknown error"]).join("\n") + '</div>';
-      $("save-btn").disabled = false;
+    const r = await publishNow();
+    if (!r.ok) {
+      $("errors").innerHTML = '<div class="err-box">Publish rejected:\n' + r.errors.join("\n") + '</div>';
       return;
     }
-    setDirty(false);
-    toast("Saved " + out.products + " products" + (out.backups && out.backups.length ? " · backed up" : ""));
+    toast("Published " + r.count + " products");
   } catch (e) {
+    setDirty(true);
     $("errors").innerHTML = '<div class="err-box">Could not reach the server: ' + e.message + '</div>';
-    $("save-btn").disabled = false;
   }
 });
 
