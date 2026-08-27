@@ -1,0 +1,411 @@
+"""Order lifecycle and inventory. Everything a payment provider will eventually drive.
+
+Two principles run through this file.
+
+PRICES ARE COMPUTED HERE, NEVER ACCEPTED FROM THE BROWSER. The cart posts product names, sizes and
+quantities — nothing else. Every price, the bulk tier, shipping and the total are recalculated from
+the database. A tampered cart changes what is ordered, never what it costs.
+
+STOCK IS RESERVED, NOT DEDUCTED, UNTIL PAYMENT IS CONFIRMED. A pending order holds units through
+inventory_reservations; product_sizes.qty only moves when payment lands. An abandoned checkout
+therefore cannot eat inventory, and a refund can hand it back.
+"""
+import json, secrets, sqlite3, threading, time
+
+STATUSES = ("pending", "paid", "fulfilled", "cancelled", "failed", "refunded")
+
+# Mirrors the shipping block at the top of script.js. Kept in step by test_pricing_parity.
+CATEGORY_WEIGHT_OZ = {"T-Shirts": 7, "Belts": 10, "Shoes": 40, "Backpacks": 32}
+DEFAULT_WEIGHT_OZ = 8
+PACKAGING_OZ = 3
+SHIPPING_TIERS = [(15.99, 550), (16, 761), (32, 850), (48, 950), (80, 1200), (160, 1700)]
+SHIPPING_OVER_MAX = 2200
+
+_lock = threading.Lock()
+
+
+class OrderError(Exception):
+    """Rejected for a reason the customer should see."""
+    def __init__(self, message, detail=None):
+        super().__init__(message)
+        self.message = message
+        self.detail = detail or {}
+
+
+# ---- pricing -----------------------------------------------------------------------------------
+def _tiers_for(conn, product):
+    """Product ladder, else category ladder, else the default — the same three levels as the JS."""
+    for scope in (f"prod:{product['id']}", f"cat:{product['category']}", "default"):
+        rows = conn.execute(
+            "SELECT tier_id, min_qty FROM pricing_tiers WHERE scope=? ORDER BY position", (scope,)
+        ).fetchall()
+        if rows:
+            return [(r["tier_id"], r["min_qty"]) for r in rows]
+    return [("retail", 1)]
+
+
+def _prices_for(conn, product):
+    return {r["tier_id"]: r["price_cents"] for r in conn.execute(
+        "SELECT tier_id, price_cents FROM product_prices WHERE product_id=?", (product["id"],)
+    ).fetchall()}
+
+
+def price_cents_for(conn, product, qty):
+    """The per-unit price at this quantity.
+
+    Charges the CHEAPEST tier the quantity reaches, not the deepest. Since raising quantity only
+    adds tiers to the reached set, taking the minimum makes per-unit price non-increasing in
+    quantity — a buyer can never pay more per item by buying more, even if someone later types a
+    bulk price above the retail one. This matches tierFor() in script.js.
+    """
+    prices = _prices_for(conn, product)
+    best = None
+    for tier_id, min_qty in _tiers_for(conn, product):
+        if qty < min_qty:
+            continue
+        p = prices.get(tier_id)
+        if p is None:
+            continue
+        if best is None or p <= best[1]:
+            best = (tier_id, p)
+    if best is None:
+        return ("retail", product["retail_cents"])
+    return best
+
+
+def _weight_oz(product):
+    return CATEGORY_WEIGHT_OZ.get(product["category"], DEFAULT_WEIGHT_OZ)
+
+
+def shipping_cents(lines):
+    """lines: [(product_row, size, qty)]"""
+    if not lines:
+        return 0, 0.0
+    oz = sum(_weight_oz(p) * q for p, _s, q in lines) + PACKAGING_OZ
+    for max_oz, price in SHIPPING_TIERS:
+        if oz <= max_oz:
+            return price, float(oz)
+    return SHIPPING_OVER_MAX, float(oz)
+
+
+def _resolve_product(conn, product_id, name):
+    """Find the product a cart line refers to.
+
+    By id first, because that is stable across renames. Falling back to the display name matters
+    because the storefront sends `fullName` — brand plus name, "Amiri 3D Logo Tee" — while the
+    products table stores "3D Logo Tee". Matching only on products.name rejected every order.
+    """
+    if product_id:
+        p = conn.execute("SELECT * FROM products WHERE id=?", (str(product_id),)).fetchone()
+        if p is not None:
+            return p
+    if not name:
+        return None
+    p = conn.execute("SELECT * FROM products WHERE name=?", (name,)).fetchone()
+    if p is not None:
+        return p
+    # "<brand> <name>", the storefront's fullName()
+    return conn.execute(
+        "SELECT * FROM products WHERE ? = TRIM(CASE WHEN brand='[brand?]' THEN name ELSE brand || ' ' || name END)",
+        (name,)).fetchone()
+
+
+def quote(conn, requested):
+    """Price a basket from scratch.
+
+    requested: [{name, size, qty}] — exactly what the browser is allowed to influence.
+    Returns the priced lines and the totals, all in integer cents.
+    """
+    if not requested:
+        raise OrderError("Your cart is empty.")
+
+    resolved = []
+    for item in requested:
+        name = str(item.get("name", "")).strip()
+        size = str(item.get("size", "")).strip()
+        try:
+            qty = int(item.get("qty", 0))
+        except (TypeError, ValueError):
+            raise OrderError(f"Invalid quantity for “{name}”.")
+        if qty < 1:
+            raise OrderError(f"Invalid quantity for “{name}”.")
+        if qty > 999:
+            raise OrderError(f"That quantity is not available for “{name}”.")
+
+        p = _resolve_product(conn, item.get("id"), name)
+        if p is None:
+            raise OrderError(f"“{name}” is no longer available.")
+        if p["status"] == "sold":
+            raise OrderError(f"“{name}” is sold out.")
+        srow = conn.execute("SELECT * FROM product_sizes WHERE product_id=? AND size=?",
+                            (p["id"], size)).fetchone()
+        if srow is None:
+            raise OrderError(f"Size {size} is not available for “{name}”.")
+        resolved.append({"product": p, "size": size, "qty": qty})
+
+    # One line per product+size. A cart that lists the same pair twice is combined rather than
+    # rejected, so the quantity check below sees the true total.
+    merged = {}
+    for r in resolved:
+        key = (r["product"]["id"], r["size"])
+        if key in merged:
+            merged[key]["qty"] += r["qty"]
+        else:
+            merged[key] = r
+    resolved = list(merged.values())
+
+    # Quantity pools across a whole CATEGORY, across styles and sizes — 3 of one tee plus 2 of
+    # another is 5 shirts, and all 5 bill at the 5+ price. Same rule as poolUnitsIn() in the JS.
+    pooled = {}
+    for r in resolved:
+        pooled[r["product"]["category"]] = pooled.get(r["product"]["category"], 0) + r["qty"]
+
+    lines, subtotal = [], 0
+    for r in resolved:
+        tier_id, unit = price_cents_for(conn, r["product"], pooled[r["product"]["category"]])
+        line_total = unit * r["qty"]
+        subtotal += line_total
+        lines.append({
+            "product_id": r["product"]["id"], "name": r["product"]["name"], "size": r["size"],
+            "qty": r["qty"], "unit_cents": unit, "line_cents": line_total, "tier": tier_id,
+            "category": r["product"]["category"],
+        })
+
+    ship, oz = shipping_cents([(r["product"], r["size"], r["qty"]) for r in resolved])
+    return {"lines": lines, "subtotal_cents": subtotal, "shipping_cents": ship,
+            "total_cents": subtotal + ship, "weight_oz": oz}
+
+
+# ---- inventory ---------------------------------------------------------------------------------
+def availability(conn, product_id, size):
+    row = conn.execute("SELECT * FROM size_availability WHERE product_id=? AND size=?",
+                       (product_id, size)).fetchone()
+    return 0 if row is None else row["available_qty"]
+
+
+def check_stock(conn, lines):
+    """Raise if any line asks for more than is actually free right now."""
+    problems = []
+    for ln in lines:
+        avail = availability(conn, ln["product_id"], ln["size"])
+        if ln["qty"] > avail:
+            problems.append({"name": ln["name"], "size": ln["size"],
+                             "requested": ln["qty"], "available": max(0, avail)})
+    if problems:
+        first = problems[0]
+        msg = (f"Only {first['available']} left of “{first['name']}” in {first['size']}."
+               if first["available"] else
+               f"“{first['name']}” in {first['size']} just sold out.")
+        raise OrderError(msg, {"stock": problems})
+
+
+# ---- order lifecycle ---------------------------------------------------------------------------
+def _log(conn, order_id, frm, to, note=""):
+    conn.execute("INSERT INTO order_events(order_id, at, from_status, to_status, note) VALUES (?,?,?,?,?)",
+                 (order_id, time.time(), frm, to, note))
+
+
+def create_order(conn, email, requested, ship_to, idempotency_key=None):
+    """Price, validate stock, reserve it, and record a pending order. One transaction."""
+    with _lock:
+        conn.execute("BEGIN IMMEDIATE")
+        try:
+            if idempotency_key:
+                seen = conn.execute("SELECT order_id FROM payment_events WHERE event_id=?",
+                                    (idempotency_key,)).fetchone()
+                if seen and seen["order_id"]:
+                    existing = conn.execute("SELECT * FROM orders WHERE id=?", (seen["order_id"],)).fetchone()
+                    conn.rollback()
+                    return {"order_id": existing["id"], "order_ref": existing["order_ref"],
+                            "duplicate": True}
+
+            q = quote(conn, requested)
+            check_stock(conn, q["lines"])
+
+            now = time.time()
+            ref = "PO-" + secrets.token_hex(4).upper()
+            conn.execute("""INSERT INTO customers(email, first_seen, last_seen) VALUES(?,?,?)
+                            ON CONFLICT(email) DO UPDATE SET last_seen=excluded.last_seen""",
+                         (email, now, now))
+            cur = conn.execute("""INSERT INTO orders
+                (email, placed_at, subtotal_cents, shipping_cents, total_cents, weight_oz, status,
+                 ship_name, ship_address1, ship_address2, ship_city, ship_state, ship_zip,
+                 ship_country, order_ref, updated_at, currency, inventory_state)
+                VALUES (?,?,?,?,?,?, 'pending', ?,?,?,?,?,?,?, ?,?, 'USD', 'reserved')""",
+                (email, now, q["subtotal_cents"], q["shipping_cents"], q["total_cents"],
+                 q["weight_oz"], ship_to.get("name", ""), ship_to.get("address1", ""),
+                 ship_to.get("address2", ""), ship_to.get("city", ""), ship_to.get("state", ""),
+                 ship_to.get("zip", ""), ship_to.get("country", ""), ref, now))
+            order_id = cur.lastrowid
+
+            for i, ln in enumerate(q["lines"]):
+                conn.execute("""INSERT INTO order_items
+                    (order_id, position, product_name, size, qty, price_cents, tier, product_id)
+                    VALUES (?,?,?,?,?,?,?,?)""",
+                    (order_id, i, ln["name"], ln["size"], ln["qty"], ln["unit_cents"],
+                     ln["tier"], ln["product_id"]))
+                conn.execute("""INSERT INTO inventory_reservations
+                    (order_id, product_id, size, qty, created_at) VALUES (?,?,?,?,?)""",
+                    (order_id, ln["product_id"], ln["size"], ln["qty"], now))
+
+            _log(conn, order_id, None, "pending", "order created, stock reserved")
+            if idempotency_key:
+                conn.execute("""INSERT INTO payment_events
+                    (event_id, provider, event_type, order_id, received_at, payload)
+                    VALUES (?,?,?,?,?,?)""",
+                    (idempotency_key, "manual", "order.created", order_id, now, None))
+            conn.commit()
+            return {"order_id": order_id, "order_ref": ref, "duplicate": False,
+                    "subtotal_cents": q["subtotal_cents"], "shipping_cents": q["shipping_cents"],
+                    "total_cents": q["total_cents"], "lines": q["lines"]}
+        except Exception:
+            conn.rollback()
+            raise
+
+
+def _record_event(conn, event_id, event_type, order_id, provider="manual", payload=None):
+    """Returns False if this exact event has already been handled.
+
+    The UNIQUE primary key on payment_events is the whole idempotency mechanism: a replayed webhook
+    fails the insert and is treated as already-processed, so it cannot deduct stock twice.
+    """
+    try:
+        conn.execute("""INSERT INTO payment_events
+            (event_id, provider, event_type, order_id, received_at, payload) VALUES (?,?,?,?,?,?)""",
+            (event_id, provider, event_type, order_id, time.time(),
+             json.dumps(payload) if payload else None))
+        return True
+    except sqlite3.IntegrityError:
+        return False
+
+
+def mark_paid(conn, order_id, event_id, provider="manual", payload=None):
+    """Confirm payment: convert the reservation into a real deduction."""
+    with _lock:
+        conn.execute("BEGIN IMMEDIATE")
+        try:
+            if not _record_event(conn, event_id, "payment.succeeded", order_id, provider, payload):
+                conn.rollback()
+                return {"ok": True, "duplicate": True}
+
+            o = conn.execute("SELECT * FROM orders WHERE id=?", (order_id,)).fetchone()
+            if o is None:
+                raise OrderError("Unknown order.")
+            if o["status"] == "paid":
+                conn.commit()
+                return {"ok": True, "duplicate": True}
+            if o["status"] != "pending":
+                raise OrderError(f"Cannot pay an order that is {o['status']}.")
+
+            # Deduct the physical stock the reservation was holding.
+            for r in conn.execute("SELECT * FROM inventory_reservations WHERE order_id=?",
+                                  (order_id,)).fetchall():
+                row = conn.execute("SELECT qty FROM product_sizes WHERE product_id=? AND size=?",
+                                   (r["product_id"], r["size"])).fetchone()
+                if row is None:
+                    raise OrderError("A product in this order no longer exists.")
+                if row["qty"] < r["qty"]:
+                    # Should be impossible while the reservation stands; refuse rather than
+                    # write a negative quantity.
+                    raise OrderError("Stock changed since this order was placed.")
+                conn.execute("UPDATE product_sizes SET qty = qty - ? WHERE product_id=? AND size=?",
+                             (r["qty"], r["product_id"], r["size"]))
+            conn.execute("DELETE FROM inventory_reservations WHERE order_id=?", (order_id,))
+            conn.execute("""UPDATE orders SET status='paid', inventory_state='deducted',
+                            updated_at=? WHERE id=?""", (time.time(), order_id))
+            _log(conn, order_id, o["status"], "paid", f"payment confirmed ({provider})")
+            conn.commit()
+            return {"ok": True, "duplicate": False}
+        except Exception:
+            conn.rollback()
+            raise
+
+
+def cancel_order(conn, order_id, reason="cancelled", status="cancelled", event_id=None):
+    """Release a pending order. Stock was never deducted, so only the reservation is dropped."""
+    with _lock:
+        conn.execute("BEGIN IMMEDIATE")
+        try:
+            if event_id and not _record_event(conn, event_id, f"order.{status}", order_id):
+                conn.rollback()
+                return {"ok": True, "duplicate": True}
+            o = conn.execute("SELECT * FROM orders WHERE id=?", (order_id,)).fetchone()
+            if o is None:
+                raise OrderError("Unknown order.")
+            if o["status"] in ("cancelled", "failed"):
+                conn.commit()
+                return {"ok": True, "duplicate": True}
+            if o["status"] != "pending":
+                raise OrderError(f"Cannot cancel an order that is {o['status']}.")
+            conn.execute("DELETE FROM inventory_reservations WHERE order_id=?", (order_id,))
+            conn.execute("""UPDATE orders SET status=?, inventory_state='released', updated_at=?
+                            WHERE id=?""", (status, time.time(), order_id))
+            _log(conn, order_id, o["status"], status, reason)
+            conn.commit()
+            return {"ok": True, "duplicate": False}
+        except Exception:
+            conn.rollback()
+            raise
+
+
+def refund_order(conn, order_id, event_id, restore_stock=True, provider="manual"):
+    """Money back. Stock goes back on the shelf unless the goods are unsellable."""
+    with _lock:
+        conn.execute("BEGIN IMMEDIATE")
+        try:
+            if not _record_event(conn, event_id, "payment.refunded", order_id, provider):
+                conn.rollback()
+                return {"ok": True, "duplicate": True}
+            o = conn.execute("SELECT * FROM orders WHERE id=?", (order_id,)).fetchone()
+            if o is None:
+                raise OrderError("Unknown order.")
+            if o["status"] == "refunded":
+                conn.commit()
+                return {"ok": True, "duplicate": True}
+            if o["status"] not in ("paid", "fulfilled"):
+                raise OrderError(f"Cannot refund an order that is {o['status']}.")
+            if restore_stock and o["inventory_state"] == "deducted":
+                for it in conn.execute("SELECT * FROM order_items WHERE order_id=?", (order_id,)).fetchall():
+                    if not it["product_id"]:
+                        continue
+                    exists = conn.execute("SELECT 1 FROM product_sizes WHERE product_id=? AND size=?",
+                                          (it["product_id"], it["size"])).fetchone()
+                    if exists:
+                        conn.execute("UPDATE product_sizes SET qty = qty + ? WHERE product_id=? AND size=?",
+                                     (it["qty"], it["product_id"], it["size"]))
+            conn.execute("""UPDATE orders SET status='refunded', inventory_state=?, updated_at=?
+                            WHERE id=?""",
+                         ("restored" if restore_stock else "deducted", time.time(), order_id))
+            _log(conn, order_id, o["status"], "refunded",
+                 "refunded, stock restored" if restore_stock else "refunded, stock NOT restored")
+            conn.commit()
+            return {"ok": True, "duplicate": False}
+        except Exception:
+            conn.rollback()
+            raise
+
+
+def set_status(conn, order_id, new_status, note=""):
+    """Admin transitions that do not move money or stock (chiefly paid -> fulfilled)."""
+    if new_status not in STATUSES:
+        raise OrderError("Unknown status.")
+    with _lock:
+        conn.execute("BEGIN IMMEDIATE")
+        try:
+            o = conn.execute("SELECT * FROM orders WHERE id=?", (order_id,)).fetchone()
+            if o is None:
+                raise OrderError("Unknown order.")
+            allowed = {"paid": {"fulfilled"}, "fulfilled": {"paid"}, "pending": set(),
+                       "cancelled": set(), "failed": set(), "refunded": set()}
+            if new_status not in allowed.get(o["status"], set()):
+                raise OrderError(
+                    f"Cannot move an order from {o['status']} to {new_status} here. "
+                    "Payment, cancellation and refunds have their own actions.")
+            conn.execute("UPDATE orders SET status=?, updated_at=? WHERE id=?",
+                         (new_status, time.time(), order_id))
+            _log(conn, order_id, o["status"], new_status, note)
+            conn.commit()
+            return {"ok": True}
+        except Exception:
+            conn.rollback()
+            raise

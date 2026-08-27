@@ -2115,6 +2115,10 @@ body { padding-bottom: var(--footer-h); }
   .checkout-item-remove { align-self: center; }
 }
 
+/* Shown when the server refuses an order — out of stock, or a price that no longer matches. */
+.checkout-error{background:#2a1414;border:1px solid #5c2b2b;color:#fca5a5;border-radius:10px;
+  padding:11px 13px;margin-bottom:14px;font-size:13px;line-height:1.55}
+
 @media (hover: none) {
 
   /* 1. Film grain. A viewport-sized `mix-blend-mode: overlay` layer forces Safari to re-composite

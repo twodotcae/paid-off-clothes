@@ -24,6 +24,10 @@ import importlib.util as _ilu
 _store_spec = _ilu.spec_from_file_location("_store", os.path.join(DIR, "db", "store.py"))
 store = _ilu.module_from_spec(_store_spec)
 _store_spec.loader.exec_module(store)
+
+_orders_spec = _ilu.spec_from_file_location("_orders", os.path.join(DIR, "db", "orders.py"))
+orders = _ilu.module_from_spec(_orders_spec)
+_orders_spec.loader.exec_module(orders)
 CLICKS_FILE = os.path.join(DIR, "clicks.json")
 BIDS_FILE = os.path.join(DIR, "bids.json")
 ORDERS_FILE = os.path.join(DIR, "orders.json")
@@ -469,6 +473,45 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             self._send_json({"ok": True, "products": products, "pricing": pricing, "costs": costs})
             return
 
+        # Orders for the admin dashboard, newest first, with their items.
+        if path == "/api/admin/orders":
+            if not self._authed():
+                return
+            conn = store.connect()
+            try:
+                rows = conn.execute("SELECT * FROM orders ORDER BY placed_at DESC, id DESC").fetchall()
+                out = []
+                for o in rows:
+                    items = conn.execute(
+                        "SELECT * FROM order_items WHERE order_id=? ORDER BY position",
+                        (o["id"],)).fetchall()
+                    out.append({
+                        "id": o["id"], "ref": o["order_ref"], "email": o["email"],
+                        "placed_at": o["placed_at"], "status": o["status"],
+                        "inventory_state": o["inventory_state"],
+                        "subtotal": (o["subtotal_cents"] or 0) / 100,
+                        "shipping": (o["shipping_cents"] or 0) / 100,
+                        "total": (o["total_cents"] or 0) / 100,
+                        "weight_oz": o["weight_oz"],
+                        "ship_to": {"name": o["ship_name"], "address1": o["ship_address1"],
+                                    "address2": o["ship_address2"], "city": o["ship_city"],
+                                    "state": o["ship_state"], "zip": o["ship_zip"],
+                                    "country": o["ship_country"]},
+                        "items": [{"name": r["product_name"], "size": r["size"], "qty": r["qty"],
+                                   "price": (r["price_cents"] or 0) / 100, "tier": r["tier"]}
+                                  for r in items],
+                    })
+                # Count every status actually present, not just the known ones. An order placed
+                # before this system existed carries a free-text status ("Hold — pending
+                # shipping"); dropping it from the tally would show fewer orders than are listed.
+                counts = {s: 0 for s in orders.STATUSES}
+                for r in conn.execute("SELECT status, COUNT(*) n FROM orders GROUP BY status"):
+                    counts[r["status"]] = r["n"]
+            finally:
+                conn.close()
+            self._send_json({"ok": True, "orders": out, "counts": counts})
+            return
+
         # Unauthenticated on purpose: the login screen has to know whether a password exists yet
         # before anyone can log in. It reveals only that one bit, never the hash or the salt.
         if path == "/api/admin/status":
@@ -521,14 +564,16 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         # ounces; add Length/Width/Height columns here if you start shipping boxed items.
         if path == "/api/labels.csv":
             with lock:
-                orders = store.all_orders()
+                # NOT named `orders`: that would shadow the module-level orders module for the
+                # whole of do_GET and make it unbound in every other branch.
+                orders_by_email = store.all_orders()
             buf = io.StringIO()
             writer = csv.writer(buf)
             writer.writerow([
                 "Order ID", "Name", "Email", "Address 1", "Address 2",
                 "City", "State", "Zip", "Country", "Weight (oz)", "Items",
             ])
-            for email, entries in orders.items():
+            for email, entries in orders_by_email.items():
                 for order in entries:
                     if only_unshipped and order.get("status", "").startswith("Shipped"):
                         continue
@@ -680,6 +725,49 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             self._send_json({"ok": True, "path": rel_path, "bytes": len(data)})
             return
 
+        # ---- admin: order actions ----
+        # Payment, cancellation and refunds each move inventory, so they are separate actions
+        # rather than a free-form status field. Every one is idempotent.
+        if self.path == "/api/admin/order":
+            if not self._authed():
+                return
+            payload = self._read_json()
+            action = str(payload.get("action", ""))
+            try:
+                order_id = int(payload.get("order_id"))
+            except (TypeError, ValueError):
+                self._send_json({"ok": False, "error": "Missing order id."}, status=400)
+                return
+            # The admin acting by hand is its own event source; the key keeps a double-click from
+            # being processed twice.
+            key = str(payload.get("event_id") or f"admin_{action}_{order_id}_{int(time.time())}")
+            conn = store.connect()
+            try:
+                if action == "mark_paid":
+                    res = orders.mark_paid(conn, order_id, key, provider="admin")
+                elif action == "cancel":
+                    res = orders.cancel_order(conn, order_id, "cancelled in the dashboard",
+                                              "cancelled", event_id=key)
+                elif action == "refund":
+                    res = orders.refund_order(conn, order_id, key,
+                                              restore_stock=bool(payload.get("restore_stock", True)),
+                                              provider="admin")
+                elif action == "fulfil":
+                    res = orders.set_status(conn, order_id, "fulfilled", "marked shipped")
+                elif action == "unfulfil":
+                    res = orders.set_status(conn, order_id, "paid", "moved back to paid")
+                else:
+                    self._send_json({"ok": False, "error": "Unknown action."}, status=400)
+                    return
+            except orders.OrderError as e:
+                self._send_json({"ok": False, "error": e.message}, status=409)
+                return
+            finally:
+                conn.close()
+            store.project_orders()
+            self._send_json({"ok": True, **res})
+            return
+
         # ---- admin: save the catalog and the pricing ladder ----
         # Both files are written together or not at all. They reference each other by product
         # name, so saving one without the other is how you get a product priced at zero.
@@ -750,33 +838,42 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             ship_to = payload.get("ship_to") if isinstance(payload, dict) else None
             if not isinstance(ship_to, dict):
                 ship_to = {}
-            try:
-                total = float(payload.get("total", 0))
-                subtotal = float(payload.get("subtotal", 0))
-                shipping = float(payload.get("shipping", 0))
-                weight_oz = float(payload.get("weight_oz", 0))
-            except (TypeError, ValueError):
-                total = subtotal = shipping = weight_oz = 0
-            if not email or not items:
-                self._send_json({"ok": False, "error": "Invalid order."})
+            if not EMAIL_RE.match(email or ""):
+                self._send_json({"ok": False, "error": "A valid email is required."}, status=400)
                 return
-            with lock:
-                # MAX(id)+1 from the database, not a count of rows: counting produced a duplicate
-                # id the moment an order was ever removed.
-                order_id = store.next_order_id()
-                order = {
-                    "id": order_id,
-                    "items": items,
-                    "subtotal": subtotal,
-                    "shipping": shipping,
-                    "total": total,
-                    "weight_oz": weight_oz,
-                    "ship_to": ship_to,
-                    "time": time.time(),
-                    "status": "Hold — pending shipping",
-                }
-                store.add_order(order_id, email, order)
-            self._send_json({"ok": True, "id": order_id})
+            if not isinstance(items, list) or not items:
+                self._send_json({"ok": False, "error": "Your cart is empty."}, status=400)
+                return
+
+            # Everything the browser sends about money is ignored. Only name/size/qty is honoured;
+            # prices, the bulk tier, shipping and the total are recomputed from the database.
+            requested = [{"id": it.get("id"), "name": it.get("name"),
+                          "size": it.get("size"), "qty": it.get("qty")}
+                         for it in items if isinstance(it, dict)]
+            key = str(payload.get("idempotency_key") or "").strip() or None
+
+            conn = store.connect()
+            try:
+                result = orders.create_order(conn, email, requested, ship_to, idempotency_key=key)
+            except orders.OrderError as e:
+                self._send_json({"ok": False, "error": e.message, **e.detail}, status=409)
+                return
+            except Exception:
+                self._send_json({"ok": False, "error": "Could not place the order."}, status=500)
+                return
+            finally:
+                conn.close()
+
+            store.project_orders()
+            self._send_json({
+                "ok": True,
+                "id": result["order_id"],
+                "ref": result["order_ref"],
+                "duplicate": result.get("duplicate", False),
+                "subtotal": (result.get("subtotal_cents") or 0) / 100,
+                "shipping": (result.get("shipping_cents") or 0) / 100,
+                "total": (result.get("total_cents") or 0) / 100,
+            })
             return
 
         if self.path == "/api/subscribe":

@@ -138,6 +138,7 @@ textarea{resize:vertical;min-height:56px}
     <span class="viewtabs">
       <button class="viewtab is-on" id="tab-products" type="button">Products</button>
       <button class="viewtab" id="tab-shipments" type="button">Shipments</button>
+      <button class="viewtab" id="tab-orders" type="button">Orders</button>
     </span>
     <a class="btn btn-sm" href="/" target="_blank" rel="noopener" style="margin-left:8px">View storefront</a>
     <span class="sp"></span>
@@ -188,6 +189,36 @@ textarea{resize:vertical;min-height:56px}
       </table>
       <p class="hint" id="shipments-empty" hidden style="margin-top:18px">
         No shipments yet. Press <strong>+ New shipment</strong> to record one.
+      </p>
+    </div>
+
+    <div id="view-orders" hidden>
+      <div class="toolbar">
+        <select id="order-filter">
+          <option value="">All orders</option>
+          <option value="pending">Pending</option>
+          <option value="paid">Paid</option>
+          <option value="fulfilled">Fulfilled</option>
+          <option value="cancelled">Cancelled</option>
+          <option value="failed">Failed</option>
+          <option value="refunded">Refunded</option>
+        </select>
+        <span class="hint" id="order-summary"></span>
+      </div>
+      <div id="order-errors"></div>
+      <table>
+        <thead><tr>
+          <th>Order</th><th class="hide-sm">Placed</th><th>Customer</th>
+          <th class="hide-sm">Items</th><th class="right">Total</th>
+          <th>Status</th><th class="hide-sm">Stock</th><th></th>
+        </tr></thead>
+        <tbody id="order-rows"></tbody>
+      </table>
+      <p class="hint" id="orders-empty" hidden style="margin-top:18px">No orders yet.</p>
+      <p class="hint" style="margin-top:18px">
+        Stock is <strong>reserved</strong> when an order is placed and only <strong>deducted</strong>
+        once payment is confirmed. Cancelling a pending order releases the hold; refunding a paid one
+        puts the stock back.
       </p>
     </div>
   </main>
@@ -759,11 +790,172 @@ function setView(v) {
   VIEW = v;
   $("view-products").hidden = v !== "products";
   $("view-shipments").hidden = v !== "shipments";
+  $("view-orders").hidden = v !== "orders";
   $("tab-products").classList.toggle("is-on", v === "products");
   $("tab-shipments").classList.toggle("is-on", v === "shipments");
+  $("tab-orders").classList.toggle("is-on", v === "orders");
   $("add-btn").hidden = v !== "products";
   $("add-shipment-btn").hidden = v !== "shipments";
   if (v === "shipments") renderShipments();
+  if (v === "orders") loadOrders();
+}
+
+// ---------- orders ----------
+// Read-mostly: the dashboard shows what happened and offers the few actions that move money or
+// stock. Each of those is a named action rather than a status dropdown, because marking something
+// "paid" has to deduct inventory and marking it "refunded" has to give it back.
+let ORDERS = [];
+
+const STATUS_STYLE = { pending: "", paid: "ok", fulfilled: "ok", cancelled: "sold",
+                       failed: "sold", refunded: "feat" };
+
+async function loadOrders() {
+  try {
+    const res = await api("/api/admin/orders");
+    if (!res.ok) throw new Error("Could not load orders.");
+    const out = await res.json();
+    ORDERS = out.orders || [];
+    renderOrders(out.counts || {});
+  } catch (e) {
+    $("order-errors").innerHTML = '<div class="err-box">' + e.message + '</div>';
+  }
+}
+
+function fmtWhen(ts) {
+  if (!ts) return "—";
+  const d = new Date(ts * 1000);
+  return d.toISOString().slice(0, 16).replace("T", " ");
+}
+
+function renderOrders(counts) {
+  const filter = $("order-filter").value;
+  const rows = $("order-rows");
+  rows.innerHTML = "";
+  const list = ORDERS.filter((o) => !filter || o.status === filter);
+  $("orders-empty").hidden = list.length > 0;
+  $("order-summary").textContent =
+    ORDERS.length + " orders · " +
+    Object.entries(counts).filter(([, n]) => n).map(([s, n]) => n + " " + s).join(" · ");
+
+  list.forEach((o) => {
+    const units = o.items.reduce((n, i) => n + i.qty, 0);
+    const tr = document.createElement("tr");
+    tr.innerHTML =
+      '<td><div class="pname"></div><div class="pbrand mono"></div></td>' +
+      '<td class="hide-sm mono" style="font-size:12px"></td>' +
+      '<td><div class="ocust"></div><div class="pbrand oaddr"></div></td>' +
+      '<td class="hide-sm"><span class="mono" style="font-size:12px"></span></td>' +
+      '<td class="right mono">' + money(o.total) + '</td>' +
+      '<td><span class="pill ' + (STATUS_STYLE[o.status] || "") + '"></span></td>' +
+      '<td class="hide-sm mono" style="font-size:11px;color:var(--g500)"></td>' +
+      '<td class="right"><span class="oactions"></span></td>';
+    tr.querySelector(".pname").textContent = o.ref || ("#" + o.id);
+    tr.querySelector(".pbrand.mono").textContent = "#" + o.id;
+    tr.querySelector("td.hide-sm.mono").textContent = fmtWhen(o.placed_at);
+    tr.querySelector(".ocust").textContent = o.email;
+    tr.querySelector(".oaddr").textContent =
+      [o.ship_to.name, o.ship_to.city, o.ship_to.state].filter(Boolean).join(", ") || "no address";
+    tr.querySelectorAll("td.hide-sm span.mono")[0].textContent =
+      units + (units === 1 ? " unit" : " units") + " · " + o.items.length + " line(s)";
+    tr.querySelector(".pill").textContent = o.status;
+    tr.querySelectorAll("td.hide-sm.mono")[1].textContent = o.inventory_state;
+
+    const act = tr.querySelector(".oactions");
+    const btn = (label, action, cls) => {
+      const b = document.createElement("button");
+      b.className = "btn btn-sm " + (cls || "");
+      b.textContent = label;
+      b.style.marginLeft = "6px";
+      b.addEventListener("click", () => orderAction(o, action, label));
+      act.appendChild(b);
+    };
+    // A legacy order (free-text status from before this system) gets Details only — no action
+    // here can be trusted to mean the right thing for it.
+    if (o.status === "pending") { btn("Mark paid", "mark_paid", "btn-primary"); btn("Cancel", "cancel", "btn-danger"); }
+    if (o.status === "paid") { btn("Mark shipped", "fulfil", "btn-primary"); btn("Refund", "refund", "btn-danger"); }
+    if (o.status === "fulfilled") { btn("Refund", "refund", "btn-danger"); }
+    const view = document.createElement("button");
+    view.className = "btn btn-sm"; view.textContent = "Details"; view.style.marginLeft = "6px";
+    view.addEventListener("click", () => showOrder(o));
+    act.appendChild(view);
+    rows.appendChild(tr);
+  });
+}
+
+async function orderAction(o, action, label) {
+  const prompts = {
+    mark_paid: `Mark ${o.ref} as paid?\n\nThis DEDUCTS the reserved stock. Use it only when the money has actually arrived.`,
+    cancel: `Cancel ${o.ref}?\n\nThe reserved stock is released. Nothing was deducted, so nothing is restored.`,
+    refund: `Refund ${o.ref}?\n\nThe stock is put back on the shelf. Refunding the money itself is not automated yet — do that with your payment provider.`,
+    fulfil: `Mark ${o.ref} as shipped?`,
+  };
+  if (!confirm(prompts[action] || `${label} ${o.ref}?`)) return;
+  $("order-errors").innerHTML = "";
+  try {
+    const res = await api("/api/admin/order", {
+      method: "POST",
+      body: JSON.stringify({ order_id: o.id, action,
+                             event_id: "admin_" + action + "_" + o.id + "_" + Date.now() }),
+    });
+    const out = await res.json();
+    if (!res.ok || !out.ok) {
+      $("order-errors").innerHTML = '<div class="err-box">' + (out.error || "Action failed.") + '</div>';
+      return;
+    }
+    toast(out.duplicate ? "Already done" : label + " — done");
+    await loadOrders();
+    await refreshCatalogAfterStockChange();
+  } catch (e) {
+    $("order-errors").innerHTML = '<div class="err-box">Could not reach the server.</div>';
+  }
+}
+
+// Paying or refunding moves real stock, so the product list must not keep showing the old numbers.
+async function refreshCatalogAfterStockChange() {
+  try {
+    const res = await api("/api/admin/data");
+    if (!res.ok) return;
+    const data = await res.json();
+    DOC = data.products; PRICING = data.pricing;
+    COSTS = data.costs || COSTS;
+    render();
+  } catch (e) { /* the orders view is still correct; the catalogue refreshes on reload */ }
+}
+
+function showOrder(o) {
+  const ov = document.createElement("div");
+  ov.className = "overlay";
+  const addr = [o.ship_to.name, o.ship_to.address1, o.ship_to.address2, o.ship_to.city,
+                o.ship_to.state, o.ship_to.zip, o.ship_to.country].filter(Boolean).join(", ");
+  ov.innerHTML =
+    '<div class="panel" style="max-width:640px">' +
+      '<h2>' + escapeHtml(o.ref || ("#" + o.id)) + '</h2>' +
+      '<p class="hint">' + escapeHtml(o.email) + ' · ' + fmtWhen(o.placed_at) +
+        ' · <strong>' + escapeHtml(o.status) + '</strong> · stock ' + escapeHtml(o.inventory_state) + '</p>' +
+      '<div class="sec"><h3>Items</h3><div id="od-items"></div></div>' +
+      '<div class="sec"><h3>Ship to</h3><p class="hint" style="margin:0">' +
+        (escapeHtml(addr) || "no address given") + '</p></div>' +
+      '<div class="sec"><h3>Totals</h3>' +
+        '<div class="alloc"><div class="alloc-row"><span>Subtotal</span><span class="mono">' + money(o.subtotal) + '</span></div>' +
+        '<div class="alloc-row"><span>Shipping</span><span class="mono">' + money(o.shipping) + '</span></div>' +
+        '<div class="alloc-row alloc-total"><span>Total</span><span class="mono">' + money(o.total) + '</span></div></div>' +
+        '<p class="hint" style="margin-top:8px">Every figure here was calculated on the server from the catalogue, not sent by the browser.</p></div>' +
+      '<div class="actions"><span class="sp"></span><button class="btn btn-primary" id="od-close">Close</button></div>' +
+    '</div>';
+  document.body.appendChild(ov);
+  const wrap = ov.querySelector("#od-items");
+  o.items.forEach((it) => {
+    const row = document.createElement("div"); row.className = "alloc-row";
+    const left = document.createElement("span");
+    left.textContent = it.name + " · " + it.size + " ×" + it.qty;
+    const right = document.createElement("span");
+    right.className = "mono";
+    right.textContent = money(it.price) + "/unit" + (it.tier && it.tier !== "retail" ? " (" + it.tier + ")" : "");
+    row.appendChild(left); row.appendChild(right); wrap.appendChild(row);
+  });
+  const close = () => ov.remove();
+  ov.querySelector("#od-close").addEventListener("click", close);
+  ov.addEventListener("click", (e) => { if (e.target === ov) close(); });
 }
 
 // ---------- shipment list ----------
@@ -1455,6 +1647,8 @@ $("add-btn").addEventListener("click", () => openEditor(-1));
 $("add-shipment-btn").addEventListener("click", () => openShipment(-1));
 $("tab-products").addEventListener("click", () => setView("products"));
 $("tab-shipments").addEventListener("click", () => setView("shipments"));
+$("tab-orders").addEventListener("click", () => setView("orders"));
+$("order-filter").addEventListener("change", () => renderOrders({}));
 
 // ---------- publish ----------
 // One place that writes to disk. Adding, editing and deleting all call this straight away, so

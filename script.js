@@ -1188,6 +1188,9 @@ function formatExpiry(value) {
 // items is always an array — a lone "Buy Now" is a one-item array, cart checkout is the whole cart.
 function openCheckout(items) {
   checkoutItems = items;
+  checkoutKey = "co_" + Date.now().toString(36) + "_" + Math.random().toString(36).slice(2, 10);
+  const err = document.getElementById("checkout-error");
+  if (err) err.hidden = true;
   const subtotal = lineTotal(items);
   const shipping = shippingFor(items);
   const total = subtotal + shipping;
@@ -1240,6 +1243,12 @@ function completeCheckout(triggerLabelEl, method, successMessage, email) {
     country: "US",
   };
 
+  // The server prices the order itself and can refuse it — stock may have gone since the cart was
+  // filled. So this WAITS for the answer. It used to fire and forget, empty the cart and show
+  // "Payment successful" regardless, which would now turn a genuine rejection into a fake sale.
+  //
+  // `price` and `tier` are sent for the record only; the server recomputes both and ignores what
+  // arrives here. `id` is what actually identifies the product.
   fetch("/api/order", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -1250,9 +1259,9 @@ function completeCheckout(triggerLabelEl, method, successMessage, email) {
       total: subtotal + shipping,
       weight_oz: orderWeightOz(items),
       ship_to,
-      // `price` is what was actually charged per unit, which is the tier price when the basket
-      // qualifies for one — not the retail figure on the card. `tier` records which band applied.
+      idempotency_key: checkoutKey,
       items: items.map((l) => ({
+        id: l.id,
         name: fullName(l),
         size: l.size,
         qty: l.qty,
@@ -1260,16 +1269,43 @@ function completeCheckout(triggerLabelEl, method, successMessage, email) {
         tier: (tierFor(l, poolUnitsIn(items, l)) || {}).id || "retail",
       })),
     }),
-  }).catch(() => {});
+  })
+    .then((res) => res.json().then((out) => ({ ok: res.ok && out.ok, out })))
+    .then(({ ok, out }) => {
+      if (!ok) {
+        // Cart deliberately left intact so the buyer can adjust and try again.
+        triggerLabelEl.textContent = "Try again";
+        showCheckoutError(out.error || "That order could not be placed.");
+        return;
+      }
+      items.forEach((l) => removeFromCart(l.lineId));
+      document.getElementById("checkout-form-view").hidden = true;
+      document.getElementById("checkout-success-view").hidden = false;
+      document.getElementById("payment-alert-title").textContent = `Payment successful — via ${method}`;
+      document.getElementById("payment-alert-desc").textContent =
+        successMessage + (out.ref ? ` Your order reference is ${out.ref}.` : "");
+    })
+    .catch(() => {
+      triggerLabelEl.textContent = "Try again";
+      showCheckoutError("Could not reach the server. Nothing has been charged.");
+    });
+}
 
-  items.forEach((l) => removeFromCart(l.lineId));
+// One key per checkout attempt, so a double-click or a retried request cannot create two orders.
+let checkoutKey = null;
 
-  setTimeout(() => {
-    document.getElementById("checkout-form-view").hidden = true;
-    document.getElementById("checkout-success-view").hidden = false;
-    document.getElementById("payment-alert-title").textContent = `Payment successful — via ${method}`;
-    document.getElementById("payment-alert-desc").textContent = successMessage;
-  }, 1100);
+function showCheckoutError(message) {
+  let box = document.getElementById("checkout-error");
+  if (!box) {
+    box = document.createElement("div");
+    box.id = "checkout-error";
+    box.className = "checkout-error";
+    const view = document.getElementById("checkout-form-view");
+    view.insertBefore(box, view.firstChild);
+  }
+  box.textContent = message;
+  box.hidden = false;
+  box.scrollIntoView({ behavior: "smooth", block: "center" });
 }
 
 function initCheckout() {

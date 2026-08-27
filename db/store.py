@@ -175,6 +175,14 @@ def add_order(order_id, email, order):
         finally: conn.close()
 
 
+def project_orders():
+    """Rewrite orders.json after an order changes, so rollback stays one step away."""
+    with _lock:
+        conn = connect()
+        try: _mig.write_json(_mig.ORDERS, _mig.export_orders(conn), pretty=False)
+        finally: conn.close()
+
+
 def next_order_id():
     conn = connect()
     try:
