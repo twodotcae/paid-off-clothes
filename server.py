@@ -669,9 +669,10 @@ class Handler(http.server.SimpleHTTPRequestHandler):
 
         if path == "/api/orders":
             email = (query.get("email") or [""])[0].strip().lower()
+            ref = (query.get("ref") or [""])[0].strip().upper()
             with lock:
-                found = store.orders_for(email)
-            self._send_json(found)
+                order = store.order_by_ref(email, ref)
+            self._send_json([order] if order else [])
             return
 
         super().do_GET()

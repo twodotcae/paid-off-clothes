@@ -62,30 +62,39 @@ def clicks_doc():
     finally: conn.close()
 
 
-def orders_for(email):
+def order_by_ref(email, ref):
+    """Look up exactly one order, scoped to both the email AND the order reference the buyer was
+    shown at checkout. Knowing someone's email alone is not enough to see their order history and
+    shipping address — the caller also needs the unguessable ref.
+
+    Returns None on any kind of non-match (blank email, blank ref, wrong ref, wrong email, no such
+    order) so the API layer has one shape to send back regardless of which part was wrong. That is
+    what keeps the lookup from revealing whether a given email has ever placed an order.
+    """
+    if not email or not ref:
+        return None
     conn = connect()
     try:
-        rows = conn.execute("SELECT * FROM orders WHERE email=? ORDER BY id", (email,)).fetchall()
-        out = []
-        for o in rows:
-            out.append({
-                "id": o["id"],
-                "items": [{"name": r["product_name"], "size": r["size"], "qty": r["qty"],
-                           "price": from_cents(r["price_cents"]), "tier": r["tier"]}
-                          for r in conn.execute(
-                              "SELECT * FROM order_items WHERE order_id=? ORDER BY position",
-                              (o["id"],)).fetchall()],
-                "subtotal": from_cents(o["subtotal_cents"]),
-                "shipping": from_cents(o["shipping_cents"]),
-                "total": from_cents(o["total_cents"]),
-                "weight_oz": o["weight_oz"],
-                "ship_to": {"name": o["ship_name"], "address1": o["ship_address1"],
-                            "address2": o["ship_address2"], "city": o["ship_city"],
-                            "state": o["ship_state"], "zip": o["ship_zip"],
-                            "country": o["ship_country"]},
-                "time": o["placed_at"], "status": o["status"],
-            })
-        return out
+        o = conn.execute("SELECT * FROM orders WHERE email=? AND order_ref=?", (email, ref)).fetchone()
+        if not o:
+            return None
+        return {
+            "id": o["id"],
+            "items": [{"name": r["product_name"], "size": r["size"], "qty": r["qty"],
+                       "price": from_cents(r["price_cents"]), "tier": r["tier"]}
+                      for r in conn.execute(
+                          "SELECT * FROM order_items WHERE order_id=? ORDER BY position",
+                          (o["id"],)).fetchall()],
+            "subtotal": from_cents(o["subtotal_cents"]),
+            "shipping": from_cents(o["shipping_cents"]),
+            "total": from_cents(o["total_cents"]),
+            "weight_oz": o["weight_oz"],
+            "ship_to": {"name": o["ship_name"], "address1": o["ship_address1"],
+                        "address2": o["ship_address2"], "city": o["ship_city"],
+                        "state": o["ship_state"], "zip": o["ship_zip"],
+                        "country": o["ship_country"]},
+            "time": o["placed_at"], "status": o["status"],
+        }
     finally: conn.close()
 
 

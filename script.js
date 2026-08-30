@@ -1543,13 +1543,15 @@ function initOrders() {
   document.getElementById("orders-lookup-form").addEventListener("submit", async (e) => {
     e.preventDefault();
     const email = document.getElementById("orders-email").value.trim();
+    const ref = document.getElementById("orders-ref").value.trim();
     const list = document.getElementById("orders-list");
     const emptyNote = document.getElementById("orders-empty-note");
     list.innerHTML = "";
+    emptyNote.textContent = "No matching order found. Check your email and order reference.";
     emptyNote.hidden = true;
 
     try {
-      const res = await fetch(`/api/orders?email=${encodeURIComponent(email)}`);
+      const res = await fetch(`/api/orders?email=${encodeURIComponent(email)}&ref=${encodeURIComponent(ref)}`);
       const orders = res.ok ? await res.json() : [];
       if (orders.length === 0) {
         emptyNote.hidden = false;

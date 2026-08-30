@@ -418,25 +418,29 @@
     <button type="button" class="modal-close" id="orders-close" aria-label="Close">&times;</button>
     <div class="checkout-body">
       <p class="eyebrow">My Orders</p>
-      <h3>Look Up Your Orders</h3>
-      <p class="section-note">No account needed — enter the email you used at checkout.</p>
+      <h3>Look Up Your Order</h3>
+      <p class="section-note">No account needed — enter the email and order reference from your checkout confirmation.</p>
 
       <form id="orders-lookup-form">
         <div class="form-field">
           <label for="orders-email">Email</label>
           <input type="email" id="orders-email" placeholder="you@example.com" required autocomplete="email" />
         </div>
-        <button type="submit" class="btn btn-primary checkout-pay-btn tilt" data-tilt-max="6">Find My Orders</button>
+        <div class="form-field">
+          <label for="orders-ref">Order reference</label>
+          <input type="text" id="orders-ref" placeholder="PO-XXXXXXXX" required autocomplete="off" />
+        </div>
+        <button type="submit" class="btn btn-primary checkout-pay-btn tilt" data-tilt-max="6">Find My Order</button>
       </form>
 
       <div class="checkout-items" id="orders-list"></div>
-      <p class="cart-empty-note" id="orders-empty-note" hidden>No orders found for that email yet.</p>
+      <p class="cart-empty-note" id="orders-empty-note" hidden>No matching order found. Check your email and order reference.</p>
     </div>
   </div>
 </div>
 
 
 
-<script src="script.js?v=56"></script>
+<script src="script.js?v=57"></script>
 </body>
 </html>
