@@ -1598,6 +1598,22 @@ h1, h2, h3 { font-weight: 700; letter-spacing: -0.02em; margin: 0; }
   }
 }
 
+/* ---------- reduced vertical rhythm on phones ----------
+   Every section carries 100-120px of top/bottom padding sized for a desktop-length scroll. On a
+   390-430px phone that reads as dead space between sections — close to a full screen of empty
+   black between the hero and Featured Picks, and again between Bid of the Week and Shop by
+   Category. Trimmed here so five stacked sections don't compound into several viewport-heights of
+   nothing; desktop keeps the original spacing untouched. */
+@media (max-width: 640px) {
+  .hero { padding: 64px 0 48px; }
+  .featured { padding: 56px 0 40px; }
+  .bid-week,
+  .stock,
+  .how,
+  .contact { padding: 56px 0; }
+  .section-head { margin-bottom: 32px; }
+}
+
 /* Narrowest phones: drop the "Follow" wordmark to its icon so the top row still fits. */
 @media (max-width: 420px) {
   .social-toggle-btn { padding: 0 12px; }
