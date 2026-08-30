@@ -442,7 +442,11 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             rel = os.path.relpath(local, APP_DIR)
             if not rel.startswith(".."):
                 candidate = os.path.join(DATA_DIR, rel)
-                if os.path.exists(candidate):
+                # isfile, not exists: "." (the request for "/") and any subdirectory always
+                # "exist" under DATA_DIR since it's a real directory, which previously made every
+                # directory request resolve to the volume root and serve its listing instead of
+                # falling through to APP_DIR's index.html.
+                if os.path.isfile(candidate):
                     return candidate
         return local
 
