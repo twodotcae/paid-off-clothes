@@ -1,0 +1,23 @@
+# Never bake data or secrets into the image. These live on the volume at runtime.
+.git
+.gitignore
+paidoff.db
+paidoff.db-wal
+paidoff.db-shm
+admin_auth.json
+admin_token.txt
+costs.json
+clicks.json
+orders.json
+bids.json
+subscribers.json
+backups/
+.env
+.env.*
+*.key
+*.pem
+secrets.json
+*.tar.gz
+__pycache__/
+*.pyc
+.claude/

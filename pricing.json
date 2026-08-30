@@ -223,10 +223,10 @@
       "brand": "Louis Vuitton",
       "category": "Belts",
       "prices": {
-        "retail": 55,
-        "smallBulk": 55,
-        "bulk": 55,
-        "largeBulk": 55
+        "largeBulk": 16.99,
+        "retail": 29.99,
+        "smallBulk": 25.99,
+        "bulk": 20.99
       }
     },
     "Black Belt — Silver Hardware": {

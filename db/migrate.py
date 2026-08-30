@@ -16,9 +16,12 @@ Run directly:
 """
 import json, os, sqlite3, sys, decimal
 
-DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+# APP_DIR is where the code lives; DATA_DIR is where anything writable goes. They are the same
+# folder locally and different on a deployed instance, where DATA_DIR is a mounted volume.
+APP_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+DIR = os.path.abspath(os.environ.get("POC_DATA_DIR", APP_DIR))
 DB_PATH = os.path.join(DIR, "paidoff.db")
-SCHEMA = os.path.join(DIR, "db", "schema.sql")
+SCHEMA = os.path.join(APP_DIR, "db", "schema.sql")   # ships in the image, never written
 
 PRODUCTS = os.path.join(DIR, "products.json")
 PRICING  = os.path.join(DIR, "pricing.json")

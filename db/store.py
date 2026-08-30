@@ -13,10 +13,11 @@ files move together, or nothing does.
 """
 import os, sqlite3, threading, importlib.util
 
-DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+APP_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+DIR = os.path.abspath(os.environ.get("POC_DATA_DIR", APP_DIR))
 DB_PATH = os.path.join(DIR, "paidoff.db")
 
-_spec = importlib.util.spec_from_file_location("_mig", os.path.join(DIR, "db", "migrate.py"))
+_spec = importlib.util.spec_from_file_location("_mig", os.path.join(APP_DIR, "db", "migrate.py"))
 _mig = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(_mig)
 

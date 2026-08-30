@@ -1,0 +1,74 @@
+# Deploys to Fly.io on push.
+#
+# Staging deploys automatically. Production does NOT: it waits behind a GitHub Environment that
+# requires your approval, so a push can never put an untested catalogue in front of a customer.
+#
+# Needs one repository secret, FLY_API_TOKEN — see the setup notes in DEPLOYMENT.md.
+
+name: Deploy
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+# One deploy at a time. Two concurrent runs against a single-machine app with one volume is a way
+# to get a half-applied migration.
+concurrency:
+  group: fly-deploy
+  cancel-in-progress: false
+
+jobs:
+  staging:
+    name: Deploy to staging
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: superfly/flyctl-actions/setup-flyctl@master
+      - name: Deploy staging
+        run: flyctl deploy --config fly.staging.toml --remote-only
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+      - name: Verify staging is healthy
+        run: |
+          for i in $(seq 1 20); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' https://paid-off-clothes-staging.fly.dev/healthz || true)
+            if [ "$code" = "200" ]; then echo "staging healthy"; exit 0; fi
+            echo "attempt $i: $code"; sleep 6
+          done
+          echo "staging did not become healthy"; exit 1
+
+  production:
+    name: Deploy to production
+    needs: staging
+    runs-on: ubuntu-latest
+    # Gate: configure required reviewers on this environment in GitHub so the job pauses for you.
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+      - uses: superfly/flyctl-actions/setup-flyctl@master
+      - name: Back up the database before deploying
+        run: |
+          flyctl ssh console -a paid-off-clothes -C \
+            "python3 /app/db/backup.py --stdout" > db-backup.sqlite || echo "backup skipped (first deploy?)"
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+      - name: Keep the backup as a build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: pre-deploy-db-backup
+          path: db-backup.sqlite
+          retention-days: 30
+          if-no-files-found: warn
+      - name: Deploy production
+        run: flyctl deploy --config fly.toml --remote-only
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+      - name: Verify production is healthy
+        run: |
+          for i in $(seq 1 20); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' https://paid-off-clothes.fly.dev/healthz || true)
+            if [ "$code" = "200" ]; then echo "production healthy"; exit 0; fi
+            echo "attempt $i: $code"; sleep 6
+          done
+          echo "production did not become healthy"; exit 1

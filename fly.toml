@@ -1,0 +1,49 @@
+# Production. Not deployed yet — `app` is a placeholder until you create the app.
+#
+# ONE MACHINE, ALWAYS. SQLite is a single file on a single volume: a second machine would either
+# fail to mount it or, worse, mount a different copy and silently diverge. Every setting below that
+# looks like a scaling knob is deliberately pinned.
+
+app = "paid-off-clothes"          # created by: fly apps create paid-off-clothes
+primary_region = "iad"            # change to the region nearest your buyers
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  POC_DATA_DIR = "/data"
+  PORT = "8080"
+  # Secrets are NOT here. `fly secrets set` stores them encrypted and injects them at runtime;
+  # anything written in this file is committed to a public repo.
+
+[http_service]
+  internal_port = 8080
+  force_https = true              # HTTP is redirected; Fly terminates TLS and renews the cert
+  auto_stop_machines = false      # the storefront should answer instantly, and the reservation
+  auto_start_machines = true      # sweeper only runs while the machine is up
+  min_machines_running = 1
+  processes = ["app"]
+
+  [http_service.concurrency]
+    type = "requests"
+    # http.server is threaded but has no request timeouts. Capping concurrency keeps a slow client
+    # from occupying every thread; Fly queues past the soft limit rather than piling on.
+    soft_limit = 40
+    hard_limit = 80
+
+# A failing health check restarts the machine. The endpoint queries the database, so "process up,
+# storage gone" is caught rather than reported healthy.
+[[http_service.checks]]
+  interval = "30s"
+  timeout = "5s"
+  grace_period = "15s"
+  method = "GET"
+  path = "/healthz"
+
+[mounts]
+  source = "poc_data"             # created by: fly volumes create poc_data --size 1
+  destination = "/data"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "256mb"

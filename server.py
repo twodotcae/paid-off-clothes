@@ -15,19 +15,38 @@ import time
 from datetime import datetime
 from urllib.parse import parse_qs, urlsplit
 
-DIR = os.path.dirname(os.path.abspath(__file__))
+APP_DIR = os.path.dirname(os.path.abspath(__file__))
+
+# Everything the server WRITES lives under DATA_DIR; everything it only reads (markup, CSS, JS,
+# fonts) ships in the image and stays under APP_DIR.
+#
+# On Fly a volume is mounted at /data and POC_DATA_DIR points there, so the database, uploaded
+# photos and the admin password hash survive a redeploy — a container filesystem does not. Locally
+# the variable is unset and DATA_DIR is just the project folder, so nothing about running this on
+# your laptop changes.
+DATA_DIR = os.path.abspath(os.environ.get("POC_DATA_DIR", APP_DIR))
+os.makedirs(DATA_DIR, exist_ok=True)
+
+# Kept so existing references keep working; it now means "where the writable data is".
+DIR = DATA_DIR
+
+PORT = int(os.environ.get("PORT", "8000"))
 
 # The database is the source of truth. products.json and pricing.json are projections rewritten on
 # every save, which is what lets this cutover happen without changing one line of script.js or
 # index.html — the storefront still fetches the same static files at the same URLs.
 import importlib.util as _ilu
-_store_spec = _ilu.spec_from_file_location("_store", os.path.join(DIR, "db", "store.py"))
+_store_spec = _ilu.spec_from_file_location("_store", os.path.join(APP_DIR, "db", "store.py"))
 store = _ilu.module_from_spec(_store_spec)
 _store_spec.loader.exec_module(store)
 
-_orders_spec = _ilu.spec_from_file_location("_orders", os.path.join(DIR, "db", "orders.py"))
+_orders_spec = _ilu.spec_from_file_location("_orders", os.path.join(APP_DIR, "db", "orders.py"))
 orders = _ilu.module_from_spec(_orders_spec)
 _orders_spec.loader.exec_module(orders)
+
+_mig_spec = _ilu.spec_from_file_location("_migrate", os.path.join(APP_DIR, "db", "migrate.py"))
+_migrate = _ilu.module_from_spec(_mig_spec)
+_mig_spec.loader.exec_module(_migrate)
 CLICKS_FILE = os.path.join(DIR, "clicks.json")
 BIDS_FILE = os.path.join(DIR, "bids.json")
 ORDERS_FILE = os.path.join(DIR, "orders.json")
@@ -408,7 +427,24 @@ def validate_catalog(products, pricing):
 
 class Handler(http.server.SimpleHTTPRequestHandler):
     def __init__(self, *args, **kwargs):
-        super().__init__(*args, directory=DIR, **kwargs)
+        super().__init__(*args, directory=APP_DIR, **kwargs)
+
+    def translate_path(self, path):
+        """Serve writable files from the volume, shipped assets from the image.
+
+        products.json and the product photos are written at runtime, so on a deployed instance
+        they live on the volume rather than in the image. Everything else — index.html, script.js,
+        styles.css, fonts — is read-only and comes from the build. Checking the volume first means
+        an uploaded photo wins over one baked into the image, which is what an admin upload should do.
+        """
+        local = super().translate_path(path)
+        if DATA_DIR != APP_DIR:
+            rel = os.path.relpath(local, APP_DIR)
+            if not rel.startswith(".."):
+                candidate = os.path.join(DATA_DIR, rel)
+                if os.path.exists(candidate):
+                    return candidate
+        return local
 
     # Markup, code and data are never cached, so edits always show up on the next reload instead
     # of silently serving a stale script.js or index.html.
@@ -471,6 +507,24 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 pricing = store.pricing_doc()
                 costs = store.costs_doc()
             self._send_json({"ok": True, "products": products, "pricing": pricing, "costs": costs})
+            return
+
+        # Liveness probe for the host. Unauthenticated by design — it must answer before anyone
+        # has logged in — and it deliberately leaks nothing: a boolean and a product count, no
+        # versions, no paths, no configuration.
+        #
+        # It actually touches the database rather than just returning 200, because the failure
+        # worth catching is "process alive, storage gone", which a static reply would hide.
+        if path == "/healthz":
+            try:
+                conn = store.connect()
+                try:
+                    n = conn.execute("SELECT COUNT(*) c FROM products").fetchone()["c"]
+                finally:
+                    conn.close()
+                self._send_json({"ok": True, "products": n})
+            except Exception:
+                self._send_json({"ok": False}, status=503)
             return
 
         # Orders for the admin dashboard, newest first, with their items.
@@ -933,6 +987,68 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         pass
 
 
+def bootstrap():
+    """Prepare DATA_DIR on first boot. Safe to run every time.
+
+    A fresh volume is empty, so the image's starting catalogue and photos are copied in once. On
+    every later boot the volume already has them and nothing is overwritten — which is the whole
+    point: the deployed shop's data must outlive the image it started from.
+    """
+    if DATA_DIR == APP_DIR:
+        return  # running from the project folder; nothing to seed
+
+    # Photos: seed the shipped ones, then leave the directory alone. Uploads live here.
+    img_src, img_dst = os.path.join(APP_DIR, "images"), os.path.join(DATA_DIR, "images")
+    os.makedirs(img_dst, exist_ok=True)
+    for name in os.listdir(img_src) if os.path.isdir(img_src) else []:
+        target = os.path.join(img_dst, name)
+        if not os.path.exists(target):
+            shutil.copy2(os.path.join(img_src, name), target)
+
+    os.makedirs(os.path.join(DATA_DIR, "backups"), exist_ok=True)
+
+    # Database: build it from the catalogue shipped in the image the first time only.
+    if not os.path.exists(store.DB_PATH):
+        for name in ("products.json", "pricing.json", "costs.json"):
+            s, d = os.path.join(APP_DIR, name), os.path.join(DATA_DIR, name)
+            if os.path.exists(s) and not os.path.exists(d):
+                shutil.copy2(s, d)
+        conn = store.connect()
+        try:
+            _migrate.init(conn)
+            _migrate.import_all(conn)
+        finally:
+            conn.close()
+
+    # Schema migrations are additive and idempotent, so they run on every boot.
+    mig_dir = os.path.join(APP_DIR, "db", "migrations")
+    if os.path.isdir(mig_dir):
+        conn = store.connect()
+        try:
+            for fname in sorted(os.listdir(mig_dir)):
+                if not fname.endswith(".sql"):
+                    continue
+                raw = open(os.path.join(mig_dir, fname)).read()
+                body = "\n".join(l for l in raw.splitlines() if not l.strip().startswith("--"))
+                for stmt in [s.strip() for s in body.split(";") if s.strip()]:
+                    try:
+                        conn.execute(stmt)
+                    except Exception as e:
+                        msg = str(e).lower()
+                        if "duplicate column" not in msg and "already exists" not in msg:
+                            raise
+            conn.commit()
+        finally:
+            conn.close()
+
+    # Projections last, so the storefront's static JSON matches the database it just loaded.
+    conn = store.connect()
+    try:
+        _migrate.export_all(conn)
+    finally:
+        conn.close()
+
+
 def _start_sweeper():
     """Release expired reservations even when nothing is happening.
 
@@ -961,8 +1077,9 @@ def _start_sweeper():
 
 
 if __name__ == "__main__":
-    port = 8000
+    port = PORT
+    bootstrap()
     _start_sweeper()
     httpd = http.server.ThreadingHTTPServer(("0.0.0.0", port), Handler)
-    print(f"Serving Paid Off Clothes on http://localhost:{port}")
+    print(f"Serving Paid Off Clothes on http://localhost:{port}  (data: {DATA_DIR})")
     httpd.serve_forever()

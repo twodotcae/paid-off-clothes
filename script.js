@@ -1174,17 +1174,9 @@ function lineTotal(lines) {
   return lines.reduce((sum, l) => sum + linePrice(l, lines) * l.qty, 0);
 }
 
-// ---------- checkout (front-end mock — no payment processor wired up yet) ----------
-function formatCardNumber(value) {
-  return value.replace(/\D/g, "").slice(0, 16).replace(/(.{4})/g, "$1 ").trim();
-}
-
-function formatExpiry(value) {
-  const digits = value.replace(/\D/g, "").slice(0, 4);
-  if (digits.length <= 2) return digits;
-  return `${digits.slice(0, 2)} / ${digits.slice(2)}`;
-}
-
+// ---------- checkout (reserves stock; no payment processor connected) ----------
+// The card-number, expiry and CVC formatters lived here. They are gone along with the inputs:
+// formatting a card number implies the site does something with it, and it did not.
 // items is always an array — a lone "Buy Now" is a one-item array, cart checkout is the whole cart.
 function openCheckout(items) {
   checkoutItems = items;
@@ -1207,11 +1199,7 @@ function openCheckout(items) {
 
   const payBtn = document.getElementById("checkout-pay-btn");
   payBtn.disabled = false;
-  document.getElementById("checkout-pay-label").innerHTML = `Pay <span id="checkout-pay-amount">${money(total)}</span>`;
-
-  const applePayBtn = document.getElementById("apple-pay-btn");
-  applePayBtn.disabled = false;
-  document.getElementById("apple-pay-label").textContent = "Pay";
+  document.getElementById("checkout-pay-label").innerHTML = `Reserve <span id="checkout-pay-amount">${money(total)}</span>`;
 
   document.getElementById("checkout-overlay").hidden = false;
   syncBodyScroll();
@@ -1281,7 +1269,9 @@ function completeCheckout(triggerLabelEl, method, successMessage, email) {
       items.forEach((l) => removeFromCart(l.lineId));
       document.getElementById("checkout-form-view").hidden = true;
       document.getElementById("checkout-success-view").hidden = false;
-      document.getElementById("payment-alert-title").textContent = `Payment successful — via ${method}`;
+      // Not "Payment successful": nothing has been paid. Saying otherwise is the same dishonesty
+      // as collecting card numbers that go nowhere.
+      document.getElementById("payment-alert-title").textContent = "Order reserved — no payment taken";
       document.getElementById("payment-alert-desc").textContent =
         successMessage + (out.ref ? ` Your order reference is ${out.ref}.` : "");
     })
@@ -1315,13 +1305,6 @@ function initCheckout() {
     if (e.target.id === "checkout-overlay") closeCheckout();
   });
 
-  document.getElementById("co-card").addEventListener("input", (e) => {
-    e.target.value = formatCardNumber(e.target.value);
-  });
-  document.getElementById("co-exp").addEventListener("input", (e) => {
-    e.target.value = formatExpiry(e.target.value);
-  });
-
   document.getElementById("checkout-form").addEventListener("submit", (e) => {
     e.preventDefault();
     const payBtn = document.getElementById("checkout-pay-btn");
@@ -1330,24 +1313,12 @@ function initCheckout() {
     const label = checkoutItems.length > 1 ? `Your ${checkoutItems.length} items are` : `${checkoutItems[0].name} is`;
     completeCheckout(
       document.getElementById("checkout-pay-label"),
-      "Card",
+      "Reservation",   // `method` is now only used for the order record, not the headline
       `${label} on hold. A confirmation will go to ${email} once shipping is arranged.`,
       email
     );
   });
 
-  document.getElementById("apple-pay-btn").addEventListener("click", () => {
-    const btn = document.getElementById("apple-pay-btn");
-    btn.disabled = true;
-    const email = document.getElementById("co-email").value || "no-email-provided@applepay";
-    const label = checkoutItems.length > 1 ? `Your ${checkoutItems.length} items are` : `${checkoutItems[0].name} is`;
-    completeCheckout(
-      document.getElementById("apple-pay-label"),
-      "Apple Pay",
-      `${label} on hold. A confirmation will go to ${email} once shipping is arranged.`,
-      email
-    );
-  });
 }
 
 // ---------- cart ----------

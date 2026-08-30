@@ -369,11 +369,11 @@
       "name": "Black Belt — Black Hardware",
       "brand": "Louis Vuitton",
       "category": "Belts",
-      "description": "Black leather belt with tonal dark hardware.",
+      "description": "Black leather belt with tonal dark hardware.\n\nNO BOX!",
       "image": "images/belt-lv-black-black-hw.jpg",
       "images": [],
-      "retailPrice": 55,
-      "bulkPrice": null,
+      "retailPrice": 29.99,
+      "bulkPrice": 25.99,
       "bulkMinQty": 4,
       "sizes": [
         {
