@@ -993,32 +993,47 @@ def bootstrap():
     A fresh volume is empty, so the image's starting catalogue and photos are copied in once. On
     every later boot the volume already has them and nothing is overwritten — which is the whole
     point: the deployed shop's data must outlive the image it started from.
+
+    The database half of this must run unconditionally, including a plain local checkout where
+    DATA_DIR == APP_DIR: paidoff.db is gitignored, so a fresh clone has no database at all, and
+    even an existing paidoff.db file is not proof the schema was ever created in it — any stray
+    sqlite3.connect() (a request handled before bootstrap ran, an interrupted earlier attempt)
+    creates an empty file with zero tables, which previously made every query fail with
+    "no such table" because the whole function returned before touching the database.
     """
-    if DATA_DIR == APP_DIR:
-        return  # running from the project folder; nothing to seed
+    if DATA_DIR != APP_DIR:
+        # Photos: seed the shipped ones, then leave the directory alone. Uploads live here.
+        img_src, img_dst = os.path.join(APP_DIR, "images"), os.path.join(DATA_DIR, "images")
+        os.makedirs(img_dst, exist_ok=True)
+        for name in os.listdir(img_src) if os.path.isdir(img_src) else []:
+            target = os.path.join(img_dst, name)
+            if not os.path.exists(target):
+                shutil.copy2(os.path.join(img_src, name), target)
 
-    # Photos: seed the shipped ones, then leave the directory alone. Uploads live here.
-    img_src, img_dst = os.path.join(APP_DIR, "images"), os.path.join(DATA_DIR, "images")
-    os.makedirs(img_dst, exist_ok=True)
-    for name in os.listdir(img_src) if os.path.isdir(img_src) else []:
-        target = os.path.join(img_dst, name)
-        if not os.path.exists(target):
-            shutil.copy2(os.path.join(img_src, name), target)
+        os.makedirs(os.path.join(DATA_DIR, "backups"), exist_ok=True)
 
-    os.makedirs(os.path.join(DATA_DIR, "backups"), exist_ok=True)
-
-    # Database: build it from the catalogue shipped in the image the first time only.
-    if not os.path.exists(store.DB_PATH):
         for name in ("products.json", "pricing.json", "costs.json"):
             s, d = os.path.join(APP_DIR, name), os.path.join(DATA_DIR, name)
             if os.path.exists(s) and not os.path.exists(d):
                 shutil.copy2(s, d)
-        conn = store.connect()
-        try:
-            _migrate.init(conn)
+
+    # Database: build it from the catalogue on disk the first time only. Detected by the schema
+    # itself, not file existence, since an existing-but-empty paidoff.db must be treated the same
+    # as no file at all — otherwise import_all() (which seeds clicks/orders/bids/subscribers too)
+    # never runs and every table stays missing.
+    conn = store.connect()
+    try:
+        has_schema = conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='products'").fetchone()
+        # Every CREATE in schema.sql is IF NOT EXISTS, so this is safe to run unconditionally: it
+        # backfills any table a database is missing (e.g. `clicks`, added after some databases were
+        # already created) without touching a row that's already there. import_all() is different —
+        # it seeds from the JSON files — so that still only runs once, on a genuinely empty database.
+        _migrate.init(conn)
+        if not has_schema:
             _migrate.import_all(conn)
-        finally:
-            conn.close()
+    finally:
+        conn.close()
 
     # Schema migrations are additive and idempotent, so they run on every boot.
     mig_dir = os.path.join(APP_DIR, "db", "migrations")
