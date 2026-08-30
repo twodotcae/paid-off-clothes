@@ -622,6 +622,8 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         # row per order in the shape their importer's field-mapping step expects. Weight is in
         # ounces; add Length/Width/Height columns here if you start shipping boxed items.
         if path == "/api/labels.csv":
+            if not self._authed():
+                return
             with lock:
                 # NOT named `orders`: that would shadow the module-level orders module for the
                 # whole of do_GET and make it unbound in every other branch.
