@@ -1726,7 +1726,7 @@ body { padding-bottom: var(--footer-h); }
     radial-gradient(120% 62% at 50% 100%, #14161f 0%, #0b0c11 45%, #000 100%),
     #000;
   perspective: 1600px;
-  animation: intro-out 700ms cubic-bezier(0.4, 0, 0.2, 1) 2600ms both;
+  animation: intro-out 350ms cubic-bezier(0.4, 0, 0.2, 1) 650ms both;
 }
 
 .intro[hidden] { display: none; }
@@ -2180,3 +2180,4 @@ body { padding-bottom: var(--footer-h); }
   }
   .tilt-glow { display: none; }
 }
+

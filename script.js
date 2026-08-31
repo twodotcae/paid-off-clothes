@@ -1611,7 +1611,7 @@ function initIntro() {
   intro.addEventListener("animationend", (e) => {
     if (e.animationName === "intro-out") finish();
   });
-  setTimeout(finish, 4200);
+  setTimeout(finish, 1400);
 
   document.getElementById("intro-skip").addEventListener("click", finish);
   intro.addEventListener("click", finish);
@@ -1872,3 +1872,4 @@ document.addEventListener("DOMContentLoaded", async () => {
   initSocialToggle();
   initTilt();
 });
+
