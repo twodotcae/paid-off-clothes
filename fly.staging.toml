@@ -21,7 +21,7 @@ primary_region = "iad"
   # on it. The reservation sweep still runs on the order path when it wakes.
   auto_stop_machines = "stop"
   auto_start_machines = true
-  min_machines_running = 0
+  min_machines_running = 1
   processes = ["app"]
 
 [[http_service.checks]]
@@ -38,3 +38,4 @@ primary_region = "iad"
 [[vm]]
   size = "shared-cpu-1x"
   memory = "256mb"
+
