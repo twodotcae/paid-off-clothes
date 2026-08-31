@@ -1063,6 +1063,28 @@ def bootstrap():
         finally:
             conn.close()
 
+    # One-time repair for a database that predates categories.in_products_json (migration 003):
+    # ALTER ... ADD COLUMN can only backfill every existing row to the same default (1), which
+    # wrongly marks a pricing-only placeholder category (defined in pricing.json but not yet used
+    # by any product, e.g. Bags/Shorts) as a real products.json category too. The on-disk
+    # products.json still holds the pre-migration truth at this point in boot — the export below
+    # hasn't overwritten it yet — so it's used to correct the flag before anything is projected.
+    # Idempotent: once corrected, the file this reads back only ever reflects the corrected state.
+    if os.path.exists(PRODUCTS_FILE):
+        with open(PRODUCTS_FILE) as f:
+            real_categories = set(json.load(f).get("categories") or [])
+        if real_categories:
+            conn = store.connect()
+            try:
+                rows = conn.execute("SELECT name FROM categories").fetchall()
+                conn.executemany(
+                    "UPDATE categories SET in_products_json=? WHERE name=?",
+                    [(1 if r["name"] in real_categories else 0, r["name"]) for r in rows],
+                )
+                conn.commit()
+            finally:
+                conn.close()
+
     # Projections last, so the storefront's static JSON matches the database it just loaded.
     conn = store.connect()
     try:

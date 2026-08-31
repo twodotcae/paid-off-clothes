@@ -12,10 +12,16 @@
 PRAGMA foreign_keys = ON;
 
 CREATE TABLE IF NOT EXISTS categories (
-  name             TEXT PRIMARY KEY,
-  position         INTEGER NOT NULL,   -- order in products.json, which drives the filter tiles
-  bulk_noun        TEXT,
-  pricing_position INTEGER             -- order in pricing.json, kept so the projection is faithful
+  name              TEXT PRIMARY KEY,
+  position          INTEGER NOT NULL,   -- order in products.json, which drives the filter tiles
+  bulk_noun         TEXT,
+  pricing_position  INTEGER,            -- order in pricing.json, kept so the projection is faithful
+  -- 1 if this category is actually listed in products.json (storefront tiles, admin dropdown),
+  -- 0 if the row exists only because pricing.json pre-seeded a ladder for it (e.g. Bags, Shorts)
+  -- before any product uses it. Needed because a category can legitimately have zero CURRENT
+  -- products and still belong in products.json — "no products" and "not a products.json category"
+  -- are different things, and conflating them drops empty categories from the admin dropdown.
+  in_products_json INTEGER NOT NULL DEFAULT 1
 );
 
 CREATE TABLE IF NOT EXISTS products (

@@ -99,11 +99,15 @@ def import_docs(cur, prods, pricing, costs):
     pricing_order = {name: i for i, name in enumerate(pricing.get("categories", {}))}
     for i, name in enumerate(prods.get("categories", [])):
         noun = (pricing.get("categories", {}).get(name) or {}).get("bulkNoun")
-        cur.execute("INSERT OR REPLACE INTO categories VALUES (?,?,?,?)",
+        cur.execute("INSERT OR REPLACE INTO categories(name, position, bulk_noun, pricing_position, in_products_json) "
+                    "VALUES (?,?,?,?,1)",
                     (name, i, noun, pricing_order.get(name)))
-    # a category that only pricing.json knows about (Bags, Shorts) still needs a row
+    # A category that only pricing.json knows about (Bags, Shorts) still needs a row so
+    # export_pricing() can find it, but in_products_json=0 keeps it out of products.json's own
+    # category list until an admin actually adds it there.
     for i, (name, entry) in enumerate(pricing.get("categories", {}).items(), start=len(prods.get("categories", []))):
-        cur.execute("INSERT OR IGNORE INTO categories VALUES (?,?,?,?)",
+        cur.execute("INSERT OR IGNORE INTO categories(name, position, bulk_noun, pricing_position, in_products_json) "
+                    "VALUES (?,?,?,?,0)",
                     (name, i, entry.get("bulkNoun"), pricing_order.get(name)))
 
     pricing_prod_order = {n: i for i, n in enumerate(pricing.get("products", {}))}
@@ -199,8 +203,15 @@ def export_products(conn):
     doc = {}
     if readme: doc["_README"] = json.loads(readme["value"])
     doc["schemaVersion"] = int(ver["value"]) if ver else 1
+    # Every category actually listed in products.json is projected, whether or not it currently has
+    # a product — a category with zero products is meant to keep its tile/dropdown entry (see
+    # products.json's own README and CLAUDE.md) so it can be restocked or seeded without re-adding
+    # it first. This used to require a live product in the category, which is what made the list
+    # (and the admin "Add Product" dropdown) come back empty the moment a category had none.
+    # in_products_json separately excludes categories that exist only because pricing.json
+    # pre-seeded a ladder for them (Bags, Shorts) before any product uses them.
     doc["categories"] = [r["name"] for r in cur.execute(
-        "SELECT name FROM categories WHERE name IN (SELECT DISTINCT category FROM products) OR name='All' ORDER BY position").fetchall()]
+        "SELECT name FROM categories WHERE in_products_json=1 ORDER BY position").fetchall()]
     out = []
     for p in cur.execute("SELECT * FROM products ORDER BY position").fetchall():
         out.append({
