@@ -2181,3 +2181,13 @@ body { padding-bottom: var(--footer-h); }
   .tilt-glow { display: none; }
 }
 
+
+@media (max-width: 768px) {
+  .intro {
+    display: none !important;
+  }
+
+  body.intro-playing {
+    overflow: auto !important;
+  }
+}
