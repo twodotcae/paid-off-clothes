@@ -1841,7 +1841,8 @@ document.addEventListener("DOMContentLoaded", async () => {
   // the click counts don't depend on each other and share one round trip; loadPricing() has to
   // follow, because it walks PRODUCTS to stash base prices and PRODUCTS doesn't exist until
   // loadProducts() has run.
-  await loadProducts();`r`n  loadClickCounts().catch(() => {});
+  await loadProducts();
+  loadClickCounts().catch(() => {});
   await loadPricing();
   renderFeatured();
   initStack();
