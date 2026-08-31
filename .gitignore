@@ -29,3 +29,14 @@ secrets.json
 
 # admin-write backups — copies of the catalog, regenerated on every save
 backups/
+_cdp_*.py
+_chrome_profile/
+_chrome_tmp*/
+_cleanup_test*
+_inspect_db.py
+_migrate_test/
+_server_*.log
+_shots*/
+_test_checkout*
+_verify_cleanup*
+remote_test.txt
