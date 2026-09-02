@@ -1587,6 +1587,15 @@ function initIntro() {
   const intro = document.getElementById("intro");
   if (!intro) return;
 
+  // Touch devices skip the reveal outright — matches the `(hover: none)` convention used for every
+  // other mobile-perf decision in styles.css, rather than a width breakpoint that would also catch
+  // a narrow desktop window. Bailing out here, before any listener or the fallback setTimeout below
+  // is created, is what stops that timer from running for an overlay that's already hidden.
+  if (window.matchMedia("(hover: none)").matches) {
+    intro.hidden = true;
+    return;
+  }
+
   const alreadyPlayed = introOncePerSession() && sessionStorage.getItem("poc_intro_played") === "1";
   if (alreadyPlayed) {
     intro.hidden = true;

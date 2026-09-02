@@ -2179,15 +2179,10 @@ body { padding-bottom: var(--footer-h); }
     will-change: auto;
   }
   .tilt-glow { display: none; }
-}
 
-
-@media (max-width: 768px) {
-  .intro {
-    display: none !important;
-  }
-
-  body.intro-playing {
-    overflow: auto !important;
-  }
+  /* 5. The opening reveal. initIntro() already hides #intro immediately on a touch device before
+        attaching any listener, via this same (hover: none) check — this rule is just the visual
+        backstop for the moment between first paint and that script running, so the ~3.3s sequence
+        (and the scroll-lock it would otherwise hold) never flashes in before JS hides it. */
+  .intro { display: none; }
 }

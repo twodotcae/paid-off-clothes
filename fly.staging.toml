@@ -17,8 +17,11 @@ primary_region = "iad"
 [http_service]
   internal_port = 8080
   force_https = true
-  # Staging sleeps when idle and wakes on the next request. It costs pennies and nobody is waiting
-  # on it. The reservation sweep still runs on the order path when it wakes.
+  # Staging stays warm: min_machines_running=1 keeps one machine running at all times, so a
+  # reviewer's first request of the day never eats a cold start. auto_stop_machines is left at
+  # "stop" — Fly just never scales below the floor set by min_machines_running, so the two settings
+  # don't fight. It's a shared-cpu-1x machine, so staying up around the clock still costs pennies.
+  # The reservation sweep runs on the order path regardless.
   auto_stop_machines = "stop"
   auto_start_machines = true
   min_machines_running = 1

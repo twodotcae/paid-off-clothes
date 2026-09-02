@@ -34,7 +34,7 @@ restarting, and confirming all three survived while the shipped catalogue did no
 | Config | `fly.toml` | `fly.staging.toml` |
 | App | `paid-off-clothes` | `paid-off-clothes-staging` |
 | Volume | `poc_data` | `poc_data_staging` (separate — test orders can never reach the real shop) |
-| Machines | 1 always on | sleeps when idle |
+| Machines | 1 always on | 1 always on (min_machines_running=1, kept warm for reviewers) |
 | Deploys | manual approval | automatic on push |
 
 ## Secrets
