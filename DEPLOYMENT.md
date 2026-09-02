@@ -97,3 +97,5 @@ Each needs your account, your card, or your approval — which is why none of th
 - **Card entry has been removed** from checkout. Orders reserve stock for 30 minutes and the buyer
   is told to DM to settle up. Collecting card numbers into fields that discard them is the one
   genuinely unsafe thing this site could do.
+
+<!-- Production approval gate test. -->
