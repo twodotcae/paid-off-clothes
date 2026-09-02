@@ -99,3 +99,4 @@ Each needs your account, your card, or your approval — which is why none of th
   genuinely unsafe thing this site could do.
 
 <!-- Production approval gate test. -->
+<!-- Verifying the required-reviewer rule pauses the production job for approval. -->
