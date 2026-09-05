@@ -1174,32 +1174,95 @@ function lineTotal(lines) {
   return lines.reduce((sum, l) => sum + linePrice(l, lines) * l.qty, 0);
 }
 
-// ---------- checkout (reserves stock; no payment processor connected) ----------
-// The card-number, expiry and CVC formatters lived here. They are gone along with the inputs:
-// formatting a card number implies the site does something with it, and it did not.
+// ---------- checkout ----------
+// Two fulfillment paths. "shipping" hands off to a real Stripe Checkout Session — the buyer enters
+// their card on Stripe's own hosted page, this site never sees it. "pickup" is the original
+// reserve-and-DM flow: no shipping charge, no address, held for 30 minutes until the buyer DMs
+// @paidoffclothes and the owner marks it paid by hand in the admin dashboard.
+let checkoutFulfillment = "shipping";
+// null = not yet known (the config check is still in flight), true/false once it answers.
+let stripeEnabled = null;
+
+function fetchStripeConfig() {
+  fetch("/api/checkout/config")
+    .then((res) => res.json())
+    .then((out) => { stripeEnabled = !!(out && out.stripeEnabled); refreshCheckoutModeUI(); })
+    .catch(() => { stripeEnabled = false; refreshCheckoutModeUI(); });
+}
+
+// Recomputes everything that depends on which fulfillment method is selected: the shipping
+// address fields' visibility and required-ness, the displayed shipping cost, the notice and
+// disclaimer copy, and whether the pay button can even be pressed. Card payment is refused
+// server-side too when Stripe isn't configured — disabling the button here just keeps a buyer
+// from being sent into that dead end.
+function refreshCheckoutModeUI() {
+  const items = checkoutItems;
+  if (!items.length) return;
+  const pickup = checkoutFulfillment === "pickup";
+  const subtotal = lineTotal(items);
+  const shipping = pickup ? 0 : shippingFor(items);
+  const total = subtotal + shipping;
+
+  document.getElementById("checkout-shipping-fields").hidden = pickup;
+  ["co-ship-name", "co-address1", "co-city", "co-state", "co-zip"].forEach((id) => {
+    document.getElementById(id).required = !pickup;
+  });
+
+  document.getElementById("checkout-shipping").textContent = money(shipping);
+  document.getElementById("checkout-ship-note").textContent = pickup
+    ? "(no shipping — local pickup)"
+    : `(${(orderWeightOz(items) / 16).toFixed(1)} lb, Ground Advantage)`;
+  document.getElementById("checkout-total-price").textContent = money(total);
+
+  const notice = document.getElementById("checkout-notice");
+  const payBtn = document.getElementById("checkout-pay-btn");
+  const payLabel = document.getElementById("checkout-pay-label");
+  const disclaimer = document.getElementById("checkout-disclaimer-text");
+
+  if (pickup) {
+    notice.innerHTML =
+      "<strong>Reserved, not charged.</strong> Place the order below and it’s held in your " +
+      "name for 30 minutes — then DM " +
+      '<a href="https://instagram.com/paidoffclothes" target="_blank" rel="noopener">@paidoffclothes</a> ' +
+      "to arrange pickup and pay. Nothing is charged here and no card details are collected.";
+    payBtn.disabled = false;
+    payLabel.innerHTML = `Reserve for pickup <span id="checkout-pay-amount">${money(total)}</span>`;
+    disclaimer.textContent = "No payment is taken here and no card details are collected. Your items are held for 30 minutes.";
+  } else if (stripeEnabled === false) {
+    notice.innerHTML = "<strong>Card payment isn’t configured yet.</strong> Choose Local Pickup above, or contact the seller directly.";
+    payBtn.disabled = true;
+    payLabel.textContent = "Card payment unavailable";
+    disclaimer.textContent = "Card payment isn't set up on this store yet.";
+  } else if (stripeEnabled === null) {
+    notice.innerHTML = "<strong>Checking card payment availability&hellip;</strong>";
+    payBtn.disabled = true;
+    payLabel.textContent = "Loading…";
+  } else {
+    notice.innerHTML =
+      "<strong>Pay securely with Stripe.</strong> You’ll be taken to Stripe’s own secure " +
+      "checkout page to enter your card. Nothing is charged until you complete payment there.";
+    payBtn.disabled = false;
+    payLabel.innerHTML = `Pay <span id="checkout-pay-amount">${money(total)}</span>`;
+    disclaimer.textContent = "You'll enter your card on Stripe's own secure page — this site never sees or stores it.";
+  }
+}
+
 // items is always an array — a lone "Buy Now" is a one-item array, cart checkout is the whole cart.
 function openCheckout(items) {
   checkoutItems = items;
   checkoutKey = "co_" + Date.now().toString(36) + "_" + Math.random().toString(36).slice(2, 10);
   const err = document.getElementById("checkout-error");
   if (err) err.hidden = true;
-  const subtotal = lineTotal(items);
-  const shipping = shippingFor(items);
-  const total = subtotal + shipping;
 
   document.getElementById("checkout-items").innerHTML = items.map((p) => checkoutItemRow(p, false, items)).join("");
   document.getElementById("checkout-bulk-feedback").innerHTML = bulkFeedbackHtml(items, false);
-  document.getElementById("checkout-subtotal").textContent = money(subtotal);
-  document.getElementById("checkout-shipping").textContent = money(shipping);
-  document.getElementById("checkout-ship-note").textContent = `(${(orderWeightOz(items) / 16).toFixed(1)} lb, Ground Advantage)`;
-  document.getElementById("checkout-total-price").textContent = money(total);
+  document.getElementById("checkout-subtotal").textContent = money(lineTotal(items));
   document.getElementById("checkout-form").reset();
+  checkoutFulfillment = "shipping";
   document.getElementById("checkout-form-view").hidden = false;
   document.getElementById("checkout-success-view").hidden = true;
 
-  const payBtn = document.getElementById("checkout-pay-btn");
-  payBtn.disabled = false;
-  document.getElementById("checkout-pay-label").innerHTML = `Reserve <span id="checkout-pay-amount">${money(total)}</span>`;
+  refreshCheckoutModeUI();
 
   document.getElementById("checkout-overlay").hidden = false;
   syncBodyScroll();
@@ -1210,18 +1273,20 @@ function closeCheckout() {
   syncBodyScroll();
 }
 
-// Shared success step for both the card form and the Apple Pay button —
-// both are front-end previews only, nothing is actually charged. Still records
-// a real order (server-side) so My Orders has something to look up.
-function completeCheckout(triggerLabelEl, method, successMessage, email) {
+// Fires on checkout form submit, for either fulfillment method. Pickup records a real order
+// (server-side) so My Orders has something to look up, same as before Stripe existed. Shipping
+// hands off to a Stripe Checkout Session — the cart only empties once Stripe (via success.html
+// and the webhook) actually confirms payment, never here.
+function completeCheckout(triggerLabelEl, fulfillment, successMessage, email) {
   triggerLabelEl.textContent = "Processing...";
   const items = checkoutItems;
-  const subtotal = lineTotal(items);
-  const shipping = shippingFor(items);
+  const pickup = fulfillment === "pickup";
   const val = (id) => document.getElementById(id).value.trim();
 
   // Kept as separate fields because Pirate Ship's spreadsheet upload needs one column each.
-  const ship_to = {
+  // Blank for pickup — the server ignores whatever's here when fulfillment_method is "pickup",
+  // but there's nothing meaningful to send anyway since the address fields are hidden then.
+  const ship_to = pickup ? {} : {
     name: val("co-ship-name"),
     address1: val("co-address1"),
     address2: val("co-address2"),
@@ -1232,30 +1297,17 @@ function completeCheckout(triggerLabelEl, method, successMessage, email) {
   };
 
   // The server prices the order itself and can refuse it — stock may have gone since the cart was
-  // filled. So this WAITS for the answer. It used to fire and forget, empty the cart and show
-  // "Payment successful" regardless, which would now turn a genuine rejection into a fake sale.
-  //
-  // `price` and `tier` are sent for the record only; the server recomputes both and ignores what
-  // arrives here. `id` is what actually identifies the product.
-  fetch("/api/order", {
+  // filled. So this WAITS for the answer. `id` is what actually identifies the product; the server
+  // never trusts a price or total sent from here.
+  fetch("/api/checkout/session", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       email,
-      subtotal,
-      shipping,
-      total: subtotal + shipping,
-      weight_oz: orderWeightOz(items),
+      fulfillment_method: fulfillment,
       ship_to,
       idempotency_key: checkoutKey,
-      items: items.map((l) => ({
-        id: l.id,
-        name: fullName(l),
-        size: l.size,
-        qty: l.qty,
-        price: linePrice(l, items),
-        tier: (tierFor(l, poolUnitsIn(items, l)) || {}).id || "retail",
-      })),
+      items: items.map((l) => ({ id: l.id, name: fullName(l), size: l.size, qty: l.qty })),
     }),
   })
     .then((res) => res.json().then((out) => ({ ok: res.ok && out.ok, out })))
@@ -1266,11 +1318,15 @@ function completeCheckout(triggerLabelEl, method, successMessage, email) {
         showCheckoutError(out.error || "That order could not be placed.");
         return;
       }
+      if (out.mode === "stripe" && out.checkout_url) {
+        window.location.href = out.checkout_url;
+        return;
+      }
+      // Pickup: reserved, not charged — the same honest framing this site always used before a
+      // payment processor existed for the shipping path.
       items.forEach((l) => removeFromCart(l.lineId));
       document.getElementById("checkout-form-view").hidden = true;
       document.getElementById("checkout-success-view").hidden = false;
-      // Not "Payment successful": nothing has been paid. Saying otherwise is the same dishonesty
-      // as collecting card numbers that go nowhere.
       document.getElementById("payment-alert-title").textContent = "Order reserved — no payment taken";
       document.getElementById("payment-alert-desc").textContent =
         successMessage + (out.ref ? ` Your order reference is ${out.ref}.` : "");
@@ -1305,20 +1361,31 @@ function initCheckout() {
     if (e.target.id === "checkout-overlay") closeCheckout();
   });
 
+  document.querySelectorAll('input[name="co-fulfillment"]').forEach((radio) => {
+    radio.addEventListener("change", () => {
+      checkoutFulfillment = document.querySelector('input[name="co-fulfillment"]:checked').value;
+      refreshCheckoutModeUI();
+    });
+  });
+
   document.getElementById("checkout-form").addEventListener("submit", (e) => {
     e.preventDefault();
     const payBtn = document.getElementById("checkout-pay-btn");
     const email = document.getElementById("co-email").value;
     payBtn.disabled = true;
+    const pickup = checkoutFulfillment === "pickup";
     const label = checkoutItems.length > 1 ? `Your ${checkoutItems.length} items are` : `${checkoutItems[0].name} is`;
     completeCheckout(
       document.getElementById("checkout-pay-label"),
-      "Reservation",   // `method` is now only used for the order record, not the headline
-      `${label} on hold. A confirmation will go to ${email} once shipping is arranged.`,
+      checkoutFulfillment,
+      pickup ? `${label} on hold for pickup. A confirmation will go to ${email} once pickup is arranged.` : "",
       email
     );
   });
 
+  // Checked once at page load so the button is already in the right state by the time anyone
+  // opens the checkout modal, rather than showing "Loading…" on first open.
+  fetchStripeConfig();
 }
 
 // ---------- cart ----------

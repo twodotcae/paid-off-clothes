@@ -49,6 +49,22 @@ They are encrypted at rest and injected as environment variables. `.dockerignore
 **The admin password is not a deploy secret.** It is set through the dashboard on first visit and
 stored on the volume as a PBKDF2 hash, per environment.
 
+**Stripe** (see CLAUDE.md's "Payments (Stripe Checkout)" for how these are used) is currently unset
+on both apps — checked directly with `fly secrets list`, which comes back empty for both. Card
+payment on the shipping path is safely disabled until they're set; local pickup is unaffected. To
+turn it on:
+
+    fly secrets set STRIPE_SECRET_KEY=sk_test_or_live_... -a paid-off-clothes
+    fly secrets set STRIPE_WEBHOOK_SECRET=whsec_... -a paid-off-clothes
+
+The webhook secret comes from registering `https://paid-off-clothes.fly.dev/api/webhooks/stripe` as
+an endpoint in the Stripe dashboard, listening for `checkout.session.completed`,
+`checkout.session.async_payment_succeeded`, `checkout.session.async_payment_failed` and
+`checkout.session.expired`. Set both independently on staging (`-a paid-off-clothes-staging`) with
+**test-mode** keys only — never point staging at live keys, since its volume and its orders are
+meant to be disposable. Test mode and live mode each have their own key pair and their own webhook
+secret; switching an app from test to live is changing both values, not one.
+
 ## Backups
 
 A volume is **not** a backup — Fly volumes live on one physical host.

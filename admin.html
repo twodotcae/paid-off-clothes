@@ -857,8 +857,9 @@ function renderOrders(counts) {
     tr.querySelector(".pbrand.mono").textContent = "#" + o.id;
     tr.querySelector("td.hide-sm.mono").textContent = fmtWhen(o.placed_at);
     tr.querySelector(".ocust").textContent = o.email;
-    tr.querySelector(".oaddr").textContent =
-      [o.ship_to.name, o.ship_to.city, o.ship_to.state].filter(Boolean).join(", ") || "no address";
+    tr.querySelector(".oaddr").textContent = o.fulfillment_method === "pickup"
+      ? "Local pickup"
+      : ([o.ship_to.name, o.ship_to.city, o.ship_to.state].filter(Boolean).join(", ") || "no address");
     tr.querySelectorAll("td.hide-sm span.mono")[0].textContent =
       units + (units === 1 ? " unit" : " units") + " · " + o.items.length + " line(s)";
     tr.querySelector(".pill").textContent = o.status;
@@ -938,7 +939,7 @@ function showOrder(o) {
         ' · <strong>' + escapeHtml(o.status) + '</strong> · stock ' + escapeHtml(o.inventory_state) + '</p>' +
       '<div class="sec"><h3>Items</h3><div id="od-items"></div></div>' +
       '<div class="sec"><h3>Ship to</h3><p class="hint" style="margin:0">' +
-        (escapeHtml(addr) || "no address given") + '</p></div>' +
+        (o.fulfillment_method === "pickup" ? "Local pickup — no shipping" : (escapeHtml(addr) || "no address given")) + '</p></div>' +
       '<div class="sec"><h3>Totals</h3>' +
         '<div class="alloc"><div class="alloc-row"><span>Subtotal</span><span class="mono">' + money(o.subtotal) + '</span></div>' +
         '<div class="alloc-row"><span>Shipping</span><span class="mono">' + money(o.shipping) + '</span></div>' +

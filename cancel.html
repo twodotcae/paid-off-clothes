@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Checkout Cancelled — Paid Off Clothes</title>
+<meta name="robots" content="noindex" />
+<link rel="icon" href="images/favicon.png" type="image/png" />
+<link rel="stylesheet" href="fonts/fonts.css?v=1" />
+<link rel="stylesheet" href="styles.css?v=61" />
+<style>
+  .result-wrap { max-width: 460px; margin: 12vh auto; padding: 0 20px; }
+  .result-logo { display: block; width: 120px; height: auto; margin: 0 auto 28px; }
+  .result-card { text-align: left; }
+  .result-actions { display: flex; gap: 10px; margin-top: 6px; }
+  .result-actions .btn { flex: 1; text-align: center; }
+  .result-ref { font-family: 'JetBrains Mono', monospace; color: var(--white); }
+</style>
+</head>
+<body>
+<div class="result-wrap">
+  <img src="images/logo.png?v=2" alt="Paid Off Clothes" class="result-logo" width="700" height="452" />
+  <p class="eyebrow" style="text-align:center">Secure Checkout</p>
+
+  <div class="alert result-card">
+    <svg class="alert-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M15 9l-6 6M9 9l6 6"/></svg>
+    <p class="alert-title">Checkout cancelled</p>
+    <p class="alert-description" id="result-desc">Nothing was charged. Your cart is still saved on the storefront.</p>
+  </div>
+
+  <div class="result-actions">
+    <a class="btn btn-primary" href="/">Back to the storefront</a>
+  </div>
+</div>
+
+<script>
+(function () {
+  var ref = new URLSearchParams(window.location.search).get("ref");
+  if (ref) {
+    var d = document.createElement("div");
+    d.textContent = ref;
+    document.getElementById("result-desc").innerHTML =
+      "Nothing was charged. Order <span class=\"result-ref\">" + d.innerHTML +
+      "</span> is still held for a little while — go back and check out again when you're ready, " +
+      "or choose local pickup instead.";
+  }
+})();
+</script>
+</body>
+</html>

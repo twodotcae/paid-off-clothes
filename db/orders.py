@@ -120,11 +120,15 @@ def _resolve_product(conn, product_id, name):
         (name,)).fetchone()
 
 
-def quote(conn, requested):
+def quote(conn, requested, fulfillment_method="shipping"):
     """Price a basket from scratch.
 
     requested: [{name, size, qty}] — exactly what the browser is allowed to influence.
     Returns the priced lines and the totals, all in integer cents.
+
+    fulfillment_method zeroes the shipping charge for 'pickup': there is no carrier, no box, and
+    no weight-based rate to apply. Everything else about the quote — item prices, bulk tiers — is
+    identical either way, since pooling and pricing don't care how the buyer collects the order.
     """
     if not requested:
         raise OrderError("Your cart is empty.")
@@ -182,6 +186,8 @@ def quote(conn, requested):
         })
 
     ship, oz = shipping_cents([(r["product"], r["size"], r["qty"]) for r in resolved])
+    if fulfillment_method == "pickup":
+        ship = 0
     return {"lines": lines, "subtotal_cents": subtotal, "shipping_cents": ship,
             "total_cents": subtotal + ship, "weight_oz": oz}
 
@@ -215,8 +221,18 @@ def _log(conn, order_id, frm, to, note=""):
                  (order_id, time.time(), frm, to, note))
 
 
-def create_order(conn, email, requested, ship_to, idempotency_key=None):
-    """Price, validate stock, reserve it, and record a pending order. One transaction."""
+def create_order(conn, email, requested, ship_to, idempotency_key=None, fulfillment_method="shipping"):
+    """Price, validate stock, reserve it, and record a pending order. One transaction.
+
+    fulfillment_method is 'shipping' (an address, a carrier, priced with real shipping) or 'pickup'
+    (no address, no shipping charge — the buyer collects it in person and pays after a DM). Either
+    way the order comes out 'pending' with stock only reserved, never deducted: a pickup order is
+    confirmed by hand in the admin dashboard exactly like a shipping order is confirmed by Stripe's
+    webhook. Nothing downstream needs to treat the two differently except the shipping charge and
+    whether an address was collected.
+    """
+    if fulfillment_method not in ("shipping", "pickup"):
+        raise OrderError("Unknown fulfillment method.")
     with _lock:
         conn.execute("BEGIN IMMEDIATE")
         try:
@@ -229,8 +245,13 @@ def create_order(conn, email, requested, ship_to, idempotency_key=None):
                     return {"order_id": existing["id"], "order_ref": existing["order_ref"],
                             "duplicate": True}
 
-            q = quote(conn, requested)
+            q = quote(conn, requested, fulfillment_method)
             check_stock(conn, q["lines"])
+
+            # A pickup order never had a real address to begin with; storing whatever the browser
+            # sent anyway would let stale form state leak a shipping address onto a pickup order.
+            if fulfillment_method == "pickup":
+                ship_to = {}
 
             now = time.time()
             ref = "PO-" + secrets.token_hex(4).upper()
@@ -240,12 +261,12 @@ def create_order(conn, email, requested, ship_to, idempotency_key=None):
             cur = conn.execute("""INSERT INTO orders
                 (email, placed_at, subtotal_cents, shipping_cents, total_cents, weight_oz, status,
                  ship_name, ship_address1, ship_address2, ship_city, ship_state, ship_zip,
-                 ship_country, order_ref, updated_at, currency, inventory_state)
-                VALUES (?,?,?,?,?,?, 'pending', ?,?,?,?,?,?,?, ?,?, 'USD', 'reserved')""",
+                 ship_country, order_ref, updated_at, currency, inventory_state, fulfillment_method)
+                VALUES (?,?,?,?,?,?, 'pending', ?,?,?,?,?,?,?, ?,?, 'USD', 'reserved', ?)""",
                 (email, now, q["subtotal_cents"], q["shipping_cents"], q["total_cents"],
                  q["weight_oz"], ship_to.get("name", ""), ship_to.get("address1", ""),
                  ship_to.get("address2", ""), ship_to.get("city", ""), ship_to.get("state", ""),
-                 ship_to.get("zip", ""), ship_to.get("country", ""), ref, now))
+                 ship_to.get("zip", ""), ship_to.get("country", ""), ref, now, fulfillment_method))
             order_id = cur.lastrowid
 
             for i, ln in enumerate(q["lines"]):
@@ -267,10 +288,43 @@ def create_order(conn, email, requested, ship_to, idempotency_key=None):
             conn.commit()
             return {"order_id": order_id, "order_ref": ref, "duplicate": False,
                     "subtotal_cents": q["subtotal_cents"], "shipping_cents": q["shipping_cents"],
-                    "total_cents": q["total_cents"], "lines": q["lines"]}
+                    "total_cents": q["total_cents"], "lines": q["lines"],
+                    "fulfillment_method": fulfillment_method}
         except Exception:
             conn.rollback()
             raise
+
+
+def get_order_lines(conn, order_id):
+    """A previously-created order's priced lines, in the same shape create_order() returns.
+
+    Needed when a Stripe Checkout Session has to be (re)built for an order that already exists —
+    a retried request that hit the idempotency check in create_order() and came back 'duplicate'
+    still needs its lines to build the same session, and quote() isn't run again for it.
+    """
+    return [{"name": r["product_name"], "size": r["size"], "qty": r["qty"],
+             "unit_cents": r["price_cents"], "tier": r["tier"], "product_id": r["product_id"]}
+            for r in conn.execute(
+                "SELECT * FROM order_items WHERE order_id=? ORDER BY position", (order_id,)).fetchall()]
+
+
+def set_stripe_session(conn, order_id, session_id):
+    """Record which Checkout Session belongs to this order, so the webhook and the success page
+    can both find their way back to it. Not part of the payment state machine — creating a session
+    moves no money and reserves no stock beyond what create_order() already did — so this is a
+    plain write with no idempotency key of its own."""
+    with _lock:
+        conn.execute("UPDATE orders SET stripe_session_id=?, updated_at=? WHERE id=?",
+                     (session_id, time.time(), order_id))
+        conn.commit()
+
+
+def order_by_stripe_session(conn, session_id):
+    """Look up an order by its Checkout Session id — what the webhook and the success page both
+    carry, before either one knows an order_ref or an email."""
+    if not session_id:
+        return None
+    return conn.execute("SELECT * FROM orders WHERE stripe_session_id=?", (session_id,)).fetchone()
 
 
 def _record_event(conn, event_id, event_type, order_id, provider="manual", payload=None):

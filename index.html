@@ -14,7 +14,7 @@
      are parsed. -->
 <link rel="icon" href="images/favicon.png" type="image/png" />
 <link rel="stylesheet" href="fonts/fonts.css?v=1" />
-<link rel="stylesheet" href="styles.css?v=60" />
+<link rel="stylesheet" href="styles.css?v=61" />
 </head>
 <body>
 
@@ -301,15 +301,24 @@
         <li>DM-verified seller</li>
       </ul>
 
-      <!-- No card fields and no Apple Pay button until Stripe is actually connected. Collecting
-           card details into inputs that discard them is the one genuinely unsafe thing this site
-           could do: a real buyer types a real card number and it lands in their browser history
-           and autofill for nothing. Reserving the order is honest and works today. -->
-      <div class="checkout-notice">
-        <strong>Card payment isn&rsquo;t live yet.</strong>
-        Place the order below and it&rsquo;s held in your name for 30 minutes &mdash; then DM
-        <a href="https://instagram.com/paidoffclothes" target="_blank" rel="noopener">@paidoffclothes</a>
-        to settle up. Nothing is charged here and no card details are collected.
+      <!-- Two fulfillment paths: "shipping" hands off to a real Stripe Checkout Session (card
+           payment, hosted on Stripe's own page — no card field ever touches this site); "pickup"
+           is the original reserve-and-DM flow, unchanged, for a buyer who'd rather meet up and pay
+           in person. #checkout-notice and #checkout-disclaimer-text are rewritten by script.js
+           depending on which is selected and whether Stripe is actually configured server-side. -->
+      <div class="form-field fulfillment-toggle" role="radiogroup" aria-label="Fulfillment method">
+        <label class="fulfillment-option">
+          <input type="radio" name="co-fulfillment" value="shipping" id="co-fulfillment-shipping" checked />
+          Ship to me
+        </label>
+        <label class="fulfillment-option">
+          <input type="radio" name="co-fulfillment" value="pickup" id="co-fulfillment-pickup" />
+          Local pickup
+        </label>
+      </div>
+
+      <div class="checkout-notice" id="checkout-notice">
+        <strong>Checking card payment availability&hellip;</strong>
       </div>
 
       <form id="checkout-form">
@@ -324,40 +333,42 @@
           </div>
         </div>
 
-        <div class="form-field">
-          <label for="co-ship-name">Ship To</label>
-          <input type="text" id="co-ship-name" placeholder="Jordan Smith" required autocomplete="shipping name" />
-        </div>
-
-        <div class="form-field">
-          <label for="co-address1">Street Address</label>
-          <input type="text" id="co-address1" placeholder="123 Main St" required autocomplete="shipping address-line1" />
-        </div>
-
-        <div class="form-field">
-          <label for="co-address2">Apt / Suite <span class="optional">optional</span></label>
-          <input type="text" id="co-address2" placeholder="Apt 4B" autocomplete="shipping address-line2" />
-        </div>
-
-        <div class="form-row form-row-3">
+        <div id="checkout-shipping-fields">
           <div class="form-field">
-            <label for="co-city">City</label>
-            <input type="text" id="co-city" placeholder="Houston" required autocomplete="shipping address-level2" />
+            <label for="co-ship-name">Ship To</label>
+            <input type="text" id="co-ship-name" placeholder="Jordan Smith" required autocomplete="shipping name" />
           </div>
+
           <div class="form-field">
-            <label for="co-state">State</label>
-            <input type="text" id="co-state" placeholder="TX" maxlength="2" required autocomplete="shipping address-level1" />
+            <label for="co-address1">Street Address</label>
+            <input type="text" id="co-address1" placeholder="123 Main St" required autocomplete="shipping address-line1" />
           </div>
+
           <div class="form-field">
-            <label for="co-zip">ZIP</label>
-            <input type="text" id="co-zip" placeholder="77001" inputmode="numeric" maxlength="10" required autocomplete="shipping postal-code" />
+            <label for="co-address2">Apt / Suite <span class="optional">optional</span></label>
+            <input type="text" id="co-address2" placeholder="Apt 4B" autocomplete="shipping address-line2" />
+          </div>
+
+          <div class="form-row form-row-3">
+            <div class="form-field">
+              <label for="co-city">City</label>
+              <input type="text" id="co-city" placeholder="Houston" required autocomplete="shipping address-level2" />
+            </div>
+            <div class="form-field">
+              <label for="co-state">State</label>
+              <input type="text" id="co-state" placeholder="TX" maxlength="2" required autocomplete="shipping address-level1" />
+            </div>
+            <div class="form-field">
+              <label for="co-zip">ZIP</label>
+              <input type="text" id="co-zip" placeholder="77001" inputmode="numeric" maxlength="10" required autocomplete="shipping postal-code" />
+            </div>
           </div>
         </div>
 
         <button type="submit" class="btn btn-primary checkout-pay-btn tilt" data-tilt-max="6" id="checkout-pay-btn">
           <span id="checkout-pay-label">Reserve <span id="checkout-pay-amount"></span></span>
         </button>
-        <p class="checkout-disclaimer">No payment is taken here and no card details are collected. Your items are held for 30 minutes.</p>
+        <p class="checkout-disclaimer" id="checkout-disclaimer-text">No payment is taken here and no card details are collected. Your items are held for 30 minutes.</p>
       </form>
     </div>
 
@@ -441,7 +452,7 @@
 
 
 
-<script src="script.js?v=60"></script>
+<script src="script.js?v=61"></script>
 </body>
 </html>
 

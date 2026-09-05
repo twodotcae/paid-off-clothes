@@ -138,7 +138,7 @@ is authentic and that receipts are provided to buyers after purchase.
 | Catalog | `renderProducts` / `getFilteredProducts` | Category tiles, search, price range, size chips, in-stock toggle, sort |
 | Footer / vouches | `initVouchFooter` | The site has exactly **one** footer, fixed to the bottom of the viewport, and it *is* the vouch rotator: one buyer quote at a time, swapped every `VOUCH_ROTATE_MS` (4s), with the brand/copyright line beneath. Quotes come verbatim from the Instagram reference post (`VOUCH_POST_URL`) — **never reword one**, since they are other people's words and editing turns a real quote into a fabricated one. Handles are stored **already masked** in `VOUCHES`: masking only at render would still ship the real usernames in the page source, which is not anonymity. The originals are on the public post. Rotation pauses on hover and while the tab is hidden; `body` carries a `padding-bottom` matching the footer height so content never runs underneath it. |
 | Cart | `loadCart` / `saveCart` | `localStorage["poc_cart"]` stores `[{name, size, qty}]`; a *line* is a product + chosen size + quantity, keyed by `lineId` (`name__size`), so two sizes of one style are two lines. `addToCart` tops up an existing line rather than refusing it, returning `"added"` / `"topped-up"` / `"maxed"`. The badge counts units, not lines. `loadCart` drops lines whose style or size has since left `PRODUCTS`. |
-| Checkout | `initCheckout` | **Front-end mock — no payment processor.** Card fields are cosmetic; only email/items/total/address are POSTed |
+| Checkout | `initCheckout` | Two fulfillment paths: **Ship to me** hands off to a real Stripe Checkout Session (test mode); **Local pickup** is the original reserve-and-DM flow, unchanged. See "Payments (Stripe Checkout)" below |
 | My Orders | `initOrders` | Email lookup, no accounts |
 | 3D tilt | `initTilt` | Any element with `class="tilt"` and optional `data-tilt-max` |
 
@@ -263,6 +263,68 @@ address split are skipped, since they have no label-ready address.
 
 Never ask for or handle the owner's Pirate Ship credentials — they download the CSV and upload it
 themselves.
+
+## Payments (Stripe Checkout)
+
+Real card payment, currently wired up in **Stripe test mode only** — no live key has ever been set
+on either environment, so no real money has moved. Two ways to complete a checkout, chosen with a
+radio toggle on the checkout form:
+
+- **Ship to me** — hands off to a Stripe Checkout Session (Stripe's own hosted payment page). The
+  buyer never types a card number into this site; Stripe redirects back to `success.html` or
+  `cancel.html` when they're done.
+- **Local pickup** — the original reserve-and-DM flow, unchanged: no address collected, no shipping
+  charge, held for 30 minutes, and the order stays `pending` until the owner marks it paid by hand
+  in the admin dashboard after the buyer DMs `@paidoffclothes`. Pickup orders never talk to Stripe.
+
+**No `stripe` package.** `stripe_client.py` at the repo root talks to Stripe's REST API with
+stdlib `urllib` (form-encoded POSTs, HTTP Basic auth with the secret key as the username) and
+implements Stripe's webhook-signature scheme by hand with `hmac`/`hashlib`, matching the project's
+zero-dependency rule. It reads `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET` from the environment
+on every call — never cached, never logged, never returned to the browser.
+
+**Endpoints**, all in `server.py`:
+
+- `GET  /api/checkout/config` — unauthenticated; `{stripeEnabled}` only, so the checkout form can
+  grey out "Ship to me" instead of sending a buyer into a dead end.
+- `POST /api/checkout/session` — the single entry point for both fulfillment methods. Prices the
+  basket the same way `/api/order` always has — `db/orders.py`'s `quote()`/`create_order()`, never
+  trusting a total the browser sent — then either reserves-and-returns (pickup) or builds a Stripe
+  Checkout Session from the server-computed line items and returns its `checkout_url` (shipping).
+  If `STRIPE_SECRET_KEY` isn't set, a shipping request is refused with a `stripe_not_configured`
+  error rather than silently falling back to an unpaid "success" — pickup is unaffected either way.
+- `POST /api/webhooks/stripe` — the only thing that ever moves an order from `pending` to `paid` on
+  the shipping path. Verifies `Stripe-Signature` before parsing anything; on
+  `checkout.session.completed` (or `.async_payment_succeeded`) with `payment_status: "paid"`, calls
+  `orders.mark_paid(..., provider="stripe")` — the same function the admin dashboard's "Mark paid"
+  button calls with `provider="admin"`. `checkout.session.expired` / `.async_payment_failed` cancel
+  the order the same way an abandoned pending order would.
+- `GET  /api/checkout/status?session_id=` — what `success.html` polls right after the redirect,
+  scoped by the Checkout Session id (unguessable, no login needed). If the order still shows
+  `pending` at that point — a race against webhook delivery, not a failure — it makes one live
+  `retrieve_checkout_session` call and marks the order paid itself if Stripe already confirms it.
+  This is a UX shortcut only; the webhook remains the authoritative path for a buyer who closes the
+  tab before the redirect completes.
+
+**Duplicate-webhook safety already existed before Stripe did.** `payment_events.event_id` is a
+`UNIQUE` primary key (added when the reservation system was built — see `db/migrations/002_orders.sql`),
+so a Stripe event id landing there twice fails the second insert and `mark_paid()` treats that as
+already-processed before it ever touches `product_sizes.qty`. Nothing new had to be built for this;
+the webhook just had to use Stripe's own `event.id` as that key, which it does.
+
+**`fulfillment_method`** (`db/migrations/004_stripe_pickup.sql`) is `'shipping'` or `'pickup'` on
+every order, defaulting existing rows to `'shipping'` — which is what every order before this
+migration actually was. It's what zeroes the shipping charge and skips the address for pickup in
+`quote()`, and what the admin dashboard reads to show "Local pickup" instead of a blank address.
+`stripe_session_id` (same migration) links an order to its Checkout Session for the webhook and the
+success page to find; `NULL` for every pickup order, which never gets one.
+
+**Going live** means, in order: get real (`sk_live_…`/`whsec_…`) keys from the Stripe dashboard,
+`fly secrets set STRIPE_SECRET_KEY=… STRIPE_WEBHOOK_SECRET=…` on the production app (see
+DEPLOYMENT.md), and register `https://paid-off-clothes.fly.dev/api/webhooks/stripe` as an endpoint
+in the Stripe dashboard listening for `checkout.session.completed`, `.async_payment_succeeded`,
+`.async_payment_failed` and `.expired`. Test mode and live mode use entirely separate keys and
+webhook secrets, so test-mode testing on staging never risks a real charge.
 
 ## Admin dashboard
 
@@ -427,8 +489,9 @@ Anything real (payments, an admin view, sending mail) needs a proper backend beh
 
 ## Known TODOs
 
-- Payments: checkout is a mock. Card data should never actually be collected until a real processor
-  (Stripe or similar) handles it — don't build a homegrown card-handling path.
+- Payments: Stripe Checkout is wired up (see "Payments (Stripe Checkout)" above) but only ever run
+  in **test mode**. Going live needs real keys set as Fly secrets and a webhook registered in the
+  Stripe dashboard — nothing has been deployed with a live key yet.
 - Resend: `/api/subscribe` has a TODO for the welcome email and drop announcements; account/API key
   not set up yet.
 - **Photo quality and provenance.** The workbook shots max out at ~420px, which is soft for a

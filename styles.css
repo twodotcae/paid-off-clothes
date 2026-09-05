@@ -2141,6 +2141,13 @@ body { padding-bottom: var(--footer-h); }
 .checkout-notice strong{color:var(--white);display:block;margin-bottom:4px}
 .checkout-notice a{color:var(--white)}
 
+.fulfillment-toggle{display:flex;gap:10px;margin-bottom:16px}
+.fulfillment-option{flex:1;display:flex;align-items:center;gap:8px;padding:10px 14px;
+  border:1px solid var(--gray-700);border-radius:12px;font-size:13px;color:var(--gray-300);
+  cursor:pointer;transition:border-color .15s,color .15s}
+.fulfillment-option:has(input:checked){border-color:var(--white);color:var(--white)}
+.fulfillment-option input{accent-color:var(--white)}
+
 @media (hover: none) {
 
   /* 1. Film grain. A viewport-sized `mix-blend-mode: overlay` layer forces Safari to re-composite

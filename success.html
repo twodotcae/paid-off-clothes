@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Order Confirmed — Paid Off Clothes</title>
+<meta name="robots" content="noindex" />
+<link rel="icon" href="images/favicon.png" type="image/png" />
+<link rel="stylesheet" href="fonts/fonts.css?v=1" />
+<link rel="stylesheet" href="styles.css?v=61" />
+<style>
+  /* This page is reached only by a full-page redirect from Stripe, so it isn't part of the SPA
+     shell in index.html — it borrows the same design tokens and a few existing component classes
+     (.alert, .btn, .eyebrow) rather than inventing a second visual language. */
+  .result-wrap { max-width: 460px; margin: 12vh auto; padding: 0 20px; }
+  .result-logo { display: block; width: 120px; height: auto; margin: 0 auto 28px; }
+  .result-card { text-align: left; }
+  .result-actions { display: flex; gap: 10px; margin-top: 6px; }
+  .result-actions .btn { flex: 1; text-align: center; }
+  .result-ref { font-family: 'JetBrains Mono', monospace; color: var(--white); }
+</style>
+</head>
+<body>
+<div class="result-wrap">
+  <img src="images/logo.png?v=2" alt="Paid Off Clothes" class="result-logo" width="700" height="452" />
+  <p class="eyebrow" style="text-align:center">Secure Checkout</p>
+
+  <div class="alert result-card" id="result-alert">
+    <svg class="alert-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><path d="M22 4 12 14.01l-3-3"/></svg>
+    <p class="alert-title" id="result-title">Checking your payment&hellip;</p>
+    <p class="alert-description" id="result-desc">One moment — confirming with Stripe.</p>
+  </div>
+
+  <div class="result-actions">
+    <a class="btn btn-primary" href="/">Continue shopping</a>
+  </div>
+</div>
+
+<script>
+(function () {
+  var params = new URLSearchParams(window.location.search);
+  var sessionId = params.get("session_id");
+  var titleEl = document.getElementById("result-title");
+  var descEl = document.getElementById("result-desc");
+
+  if (!sessionId) {
+    titleEl.textContent = "No order reference found";
+    descEl.textContent = "This page is meant to be reached from a Stripe checkout redirect. If you just paid, check My Orders on the storefront with your email and order reference.";
+    return;
+  }
+
+  fetch("/api/checkout/status?session_id=" + encodeURIComponent(sessionId))
+    .then(function (res) { return res.json().then(function (out) { return { ok: res.ok && out.ok, out: out }; }); })
+    .then(function (r) {
+      if (!r.ok) {
+        titleEl.textContent = "Couldn't confirm this order";
+        descEl.textContent = (r.out && r.out.error) || "Try My Orders on the storefront, or contact the seller with your email.";
+        return;
+      }
+      var o = r.out;
+      if (o.status === "paid" || o.status === "fulfilled") {
+        titleEl.textContent = "Payment received";
+        descEl.innerHTML = "Thank you — your order is confirmed. A confirmation will be sent to <strong>" +
+          escapeHtml(o.email) + "</strong>. Your order reference is <span class=\"result-ref\">" +
+          escapeHtml(o.ref) + "</span> for a total of $" + o.total.toFixed(2) + ".";
+      } else if (o.status === "pending") {
+        titleEl.textContent = "Payment is still processing";
+        descEl.innerHTML = "Stripe hasn't confirmed this payment yet. This page will update automatically — " +
+          "if it doesn't within a minute, look up order <span class=\"result-ref\">" + escapeHtml(o.ref) +
+          "</span> under My Orders using <strong>" + escapeHtml(o.email) + "</strong>.";
+        setTimeout(function () { window.location.reload(); }, 5000);
+      } else {
+        titleEl.textContent = "Order " + o.status;
+        descEl.textContent = "Reference " + o.ref + ". Contact the seller if this doesn't look right.";
+      }
+    })
+    .catch(function () {
+      titleEl.textContent = "Couldn't reach the server";
+      descEl.textContent = "Your payment with Stripe may still have gone through. Check My Orders on the storefront, or contact the seller.";
+    });
+
+  function escapeHtml(s) {
+    var d = document.createElement("div");
+    d.textContent = String(s == null ? "" : s);
+    return d.innerHTML;
+  }
+})();
+</script>
+</body>
+</html>
